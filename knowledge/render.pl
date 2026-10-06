@@ -1,0 +1,198 @@
+/*  render.pl -- turn fact / motif terms into explanation text and
+    visualization primitives.
+
+    Visualization primitives are the ONLY thing the frontend draws in analysis
+    mode. Each belongs to exactly one fact, so every arrow and highlight on
+    the board can be traced back to the rule that produced it.
+
+      arrow(From, To, Style)   ring(Sq, Style)   square(Sq, Style)   file(F, Style)
+
+    fact_use/2 states honestly what each kind of fact is used for:
+      explanation   - shown to the user and used to derive plans; no effect on search
+      mirrors_eval  - explanation only, but the Lisp evaluator independently
+                      scores the same concept numerically
+*/
+
+:- module(render,
+          [ fact_dict/2,           % fact_dict(+Id-Fact, -Dict)
+            motif_dict/2,
+            viz_dict/2,
+            piece_phrase/4,
+            sq_name/2,
+            join_and/2
+          ]).
+
+:- use_module(library(lists)).
+:- use_module(library(apply)).
+:- use_module(board).
+
+sq_name(Sq, Atom) :- sq_atom(Sq, Atom).
+
+cap(white, 'White').
+cap(black, 'Black').
+
+%   "white knight on f3"
+piece_phrase(C, T, Sq, Phrase) :-
+    sq_name(Sq, S),
+    format(atom(Phrase), '~w ~w on ~w', [C, T, S]).
+
+join_and([], '').
+join_and([A], A) :- !.
+join_and([A, B], Out) :- !, format(atom(Out), '~w and ~w', [A, B]).
+join_and([A|Rest], Out) :-
+    join_and(Rest, Tail),
+    format(atom(Out), '~w, ~w', [A, Tail]).
+
+viz_dict(arrow(From, To, Style), _{type:arrow, from:F, to:T, style:Style}) :-
+    sq_name(From, F), sq_name(To, T).
+viz_dict(ring(Sq, Style), _{type:ring, square:S, style:Style}) :- sq_name(Sq, S).
+viz_dict(square(Sq, Style), _{type:square, square:S, style:Style}) :- sq_name(Sq, S).
+viz_dict(file(F, Style), _{type:file, file:L, style:Style}) :- file_letter(F, L).
+
+fact_use(passed_pawn, mirrors_eval) :- !.
+fact_use(isolated_pawn, mirrors_eval) :- !.
+fact_use(doubled_pawns, mirrors_eval) :- !.
+fact_use(_, explanation).
+
+fact_dict(Id-Fact,
+          _{id:Id, kind:Kind, side:Side, squares:Names, text:Text, viz:VizDicts, use:Use}) :-
+    describe(Fact, Kind, Side, Squares, Text, Viz),
+    maplist(sq_name, Squares, Names),
+    maplist(viz_dict, Viz, VizDicts),
+    fact_use(Kind, Use).
+
+%   describe(+Fact, -Kind, -BenefitingSide, -Squares, -Text, -Viz)
+
+describe(check(C, KSq, Checkers), check, C, [KSq|From], Text, [ring(KSq, check)|Arrows]) :-
+    cap(C, Cap), sq_name(KSq, K),
+    findall(Sq, member(_-Sq, Checkers), From),
+    findall(arrow(Sq, KSq, check), member(Sq, From), Arrows),
+    format(atom(Text), '~w is giving check to the king on ~w.', [Cap, K]).
+
+describe(pin(absolute, PC, PT, PSq, T, Sq, _, BSq), pin, PC, [PSq, Sq, BSq], Text,
+         [arrow(PSq, BSq, pin), ring(Sq, pin)]) :-
+    opponent(PC, C),
+    piece_phrase(C, T, Sq, Pinned), sq_name(BSq, B), sq_name(PSq, P),
+    format(atom(Text), 'The ~w is pinned to its king on ~w by the ~w on ~w and cannot legally move off that line.',
+           [Pinned, B, PT, P]).
+describe(pin(relative, PC, PT, PSq, T, Sq, BT, BSq), pin, PC, [PSq, Sq, BSq], Text,
+         [arrow(PSq, BSq, pin), ring(Sq, pin)]) :-
+    opponent(PC, C),
+    piece_phrase(C, T, Sq, Pinned), sq_name(BSq, B), sq_name(PSq, P),
+    format(atom(Text), 'The ~w is pinned to the ~w on ~w by the ~w on ~w (relative pin: moving it loses material).',
+           [Pinned, BT, B, PT, P]).
+
+describe(skewer(PC, PT, PSq, FT, FSq, BT, BSq), skewer, PC, [PSq, FSq, BSq], Text,
+         [arrow(PSq, BSq, skewer), ring(FSq, skewer)]) :-
+    piece_phrase(PC, PT, PSq, Attacker), sq_name(FSq, F), sq_name(BSq, B),
+    format(atom(Text), 'The ~w skewers the ~w on ~w through to the ~w on ~w.',
+           [Attacker, FT, F, BT, B]).
+
+describe(fork(C, T, From, Targets), fork, C, [From|Squares], Text, [ring(From, fork)|Arrows]) :-
+    piece_phrase(C, T, From, Forker),
+    findall(Sq, member(_-Sq, Targets), Squares),
+    findall(arrow(From, Sq, fork), member(Sq, Squares), Arrows),
+    findall(P, ( member(TT-Sq, Targets), sq_name(Sq, S), format(atom(P), 'the ~w on ~w', [TT, S]) ),
+            Phrases),
+    join_and(Phrases, List),
+    format(atom(Text), 'The ~w forks ~w.', [Forker, List]).
+
+describe(hanging(C, T, Sq, Attackers), hanging, O, [Sq|From], Text, [ring(Sq, hanging)|Arrows]) :-
+    opponent(C, O),
+    piece_phrase(C, T, Sq, Piece),
+    findall(ASq, member(_-ASq, Attackers), From),
+    findall(arrow(ASq, Sq, threat), member(ASq, From), Arrows),
+    format(atom(Text), 'The ~w is attacked and has no defender.', [Piece]).
+
+describe(threatened(C, T, Sq, AT, ASq), threatened, O, [Sq, ASq], Text,
+         [ring(Sq, threat), arrow(ASq, Sq, threat)]) :-
+    opponent(C, O),
+    piece_phrase(C, T, Sq, Piece), sq_name(ASq, A),
+    format(atom(Text), 'The ~w is attacked by the cheaper ~w on ~w.', [Piece, AT, A]).
+
+describe(overloaded(C, T, Sq, Guarded), overloaded, O, [Sq|Guarded], Text,
+         [ring(Sq, overloaded)|Arrows]) :-
+    opponent(C, O),
+    piece_phrase(C, T, Sq, Piece),
+    maplist(sq_name, Guarded, Names),
+    join_and(Names, List),
+    findall(arrow(Sq, G, defend), member(G, Guarded), Arrows),
+    format(atom(Text), 'The ~w is the only defender of ~w: it is overloaded.', [Piece, List]).
+
+describe(open_file(F), open_file, null, [], Text, [file(F, open)]) :-
+    file_letter(F, L),
+    format(atom(Text), 'The ~w-file is open (no pawns of either colour).', [L]).
+
+describe(semi_open_file(C, F), semi_open_file, C, [], Text, [file(F, semi_open)]) :-
+    file_letter(F, L), cap(C, Cap),
+    format(atom(Text), 'The ~w-file is semi-open for ~w.', [L, Cap]).
+
+describe(passed_pawn(C, Sq), passed_pawn, C, [Sq], Text, [square(Sq, passed)]) :-
+    cap(C, Cap), sq_name(Sq, S),
+    format(atom(Text), '~w has a passed pawn on ~w.', [Cap, S]).
+
+describe(isolated_pawn(C, Sq), isolated_pawn, O, [Sq], Text, [square(Sq, weak_pawn)]) :-
+    opponent(C, O), sq_name(Sq, S),
+    format(atom(Text), 'The ~w pawn on ~w is isolated: no friendly pawn can ever defend it.', [C, S]).
+
+describe(doubled_pawns(C, F, Sqs), doubled_pawns, O, Sqs, Text, Viz) :-
+    opponent(C, O), cap(C, Cap), file_letter(F, L),
+    findall(square(Sq, weak_pawn), member(Sq, Sqs), Viz),
+    format(atom(Text), '~w has doubled pawns on the ~w-file.', [Cap, L]).
+
+describe(weak_square(Owner, Sq, Support), weak_square, O, [Sq, Support], Text,
+         [square(Sq, weak), arrow(Support, Sq, support)]) :-
+    opponent(Owner, O), cap(Owner, OwnerCap), sq_name(Sq, S), sq_name(Support, P),
+    format(atom(Text), '~w is a hole in ~w\'s camp: no ~w pawn can attack it and the ~w pawn on ~w controls it.',
+           [S, OwnerCap, Owner, O, P]).
+
+describe(king_shield(C, KSq, Missing), king_shield, O, [KSq], Text, [ring(KSq, king_danger)]) :-
+    opponent(C, O), sq_name(KSq, K),
+    maplist(file_letter, Missing, Letters),
+    join_and(Letters, List),
+    format(atom(Text), 'The ~w king on ~w has no pawn cover on the ~w file(s).', [C, K, List]).
+
+% ------------------------------------------------------------------ motifs
+
+motif_dict(motif(Kind, Score, Targets, Data),
+           _{kind:Kind, score:Score, targets:Names, text:Text}) :-
+    maplist(sq_name, Targets, Names),
+    motif_text(Kind, Data, Text).
+
+motif_text(gives_check, _, 'Gives check.').
+motif_text(captures_hanging, captured(T), Text) :-
+    format(atom(Text), 'Captures an undefended ~w.', [T]).
+motif_text(wins_exchange, exchange(MT, T), Text) :-
+    format(atom(Text), 'Trades up: the ~w takes a ~w.', [MT, T]).
+motif_text(creates_fork, fork(T, _, Targets), Text) :-
+    findall(P, ( member(TT-Sq, Targets), sq_name(Sq, S), format(atom(P), 'the ~w on ~w', [TT, S]) ),
+            Phrases),
+    join_and(Phrases, List),
+    format(atom(Text), 'The ~w forks ~w.', [T, List]).
+motif_text(creates_pin, pin(_, T, Sq, BT, BSq), Text) :-
+    sq_name(Sq, S), sq_name(BSq, B),
+    format(atom(Text), 'Pins the ~w on ~w against the ~w on ~w.', [T, S, BT, B]).
+motif_text(creates_skewer, skewer(FT, FSq, BT, BSq), Text) :-
+    sq_name(FSq, F), sq_name(BSq, B),
+    format(atom(Text), 'Skewers the ~w on ~w through to the ~w on ~w.', [FT, F, BT, B]).
+motif_text(hangs_piece, hangs(T, Sq), Text) :-
+    sq_name(Sq, S),
+    format(atom(Text), 'the ~w on ~w can be taken for less than it is worth.', [T, S]).
+motif_text(leaves_hanging, leaves(T, Sq), Text) :-
+    sq_name(Sq, S),
+    format(atom(Text), 'the ~w on ~w is left undefended.', [T, S]).
+motif_text(rescues, rescues(T, Sq), Text) :-
+    sq_name(Sq, S),
+    format(atom(Text), 'Moves the attacked ~w away from ~w to a safe square.', [T, S]).
+motif_text(occupies_outpost, outpost(T, Sq), Text) :-
+    sq_name(Sq, S),
+    format(atom(Text), 'Puts a ~w on the outpost ~w, where no enemy pawn can chase it.', [T, S]).
+motif_text(rook_to_open_file, file(F, open), Text) :-
+    file_letter(F, L),
+    format(atom(Text), 'Brings a rook to the open ~w-file.', [L]).
+motif_text(rook_to_open_file, file(F, semi_open), Text) :-
+    file_letter(F, L),
+    format(atom(Text), 'Brings a rook to the semi-open ~w-file.', [L]).
+motif_text(pushes_passed_pawn, passed(Sq), Text) :-
+    sq_name(Sq, S),
+    format(atom(Text), 'Advances the passed pawn to ~w.', [S]).
