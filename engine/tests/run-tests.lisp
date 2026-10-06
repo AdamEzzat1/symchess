@@ -21,6 +21,11 @@
 
 (defun section (name) (format t "~&~%== ~A~%" name))
 
+(defun getf-string (plist key)
+  "GETF for the string-keyed field lists the protocol layer builds."
+  (loop for (k v) on plist by #'cddr
+        when (equal k key) return v))
+
 ;;; ------------------------------------------------------------------ perft
 ;;; Reference counts: https://www.chessprogramming.org/Perft_Results
 
@@ -153,6 +158,37 @@
               (r (progn (tt-clear) (search-position p :max-depth 5))))
          (= (length (pv-san p (search-result-pv r))) (length (search-result-pv r))))
        t)
+
+(section "Prolog unavailable")
+;; The engine must keep playing, and say so, when the knowledge layer cannot
+;; be started. A program name that does not exist stands in for a broken install.
+(let ((*swipl-program* "symchess-no-such-prolog")
+      (*error-output* (make-broadcast-stream)) ; the bridge logs the failure; keep output clean
+      (p (pos-from-fen "r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 3 4")))
+  (stop-prolog)
+  (let* ((analysis (symbolic-analysis p))
+         (hints (symbolic-hints p analysis))
+         (result (progn (tt-clear) (search-position p :max-depth 4 :hints hints)))
+         (fields (build-explanation p result analysis))
+         (items (getf-string fields "items")))
+    (check "analysis is NIL, not an error" analysis nil)
+    (check "no ordering hints are invented" hints nil)
+    (check "search still returns a legal move"
+           (and (member (search-result-best-move result) (legal-moves p)) t) t)
+    (check "symbolic_analysis message reports unavailable"
+           (getf-string (symbolic-fields 1 analysis) "status") "unavailable")
+    (check "explanation says it is search-only"
+           (and (find-if (lambda (item)
+                           (and (string= (jget item "source") "prolog")
+                                (search "unavailable" (jget item "text"))))
+                         items)
+                t)
+           t)
+    (check "explanation still carries the measured search facts"
+           (and (find "measured" items :key (lambda (item) (jget item "status")) :test #'string=)
+                t)
+           t)))
+(stop-prolog)
 
 (section "json and websocket primitives")
 (check "json round trip"

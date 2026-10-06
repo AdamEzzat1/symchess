@@ -666,8 +666,9 @@ Error codes: `bad_request`, `unknown_command`, `bad_fen`, `illegal_move`,
 
 ### Reconnection and replay
 
-On connect the engine sends `hello`, then `game_state`, then re-runs analysis
-for the current position. The client resets its reducer on every socket open,
+On connect the engine creates a fresh game for that connection and sends
+`hello`, then `game_state`, then analysis for the position. (A game does not
+survive its connection; reconnecting starts a new one.) The client resets its reducer on every socket open,
 so nothing from the old connection survives. Every inbound command and
 outbound event is appended to `logs/session-<timestamp>.jsonl` with its `seq`
 and a millisecond timestamp. Hashing uses a fixed seed and a depth-limited
@@ -744,11 +745,14 @@ the search or to a named Prolog rule.
 | Best move changed by hints | 0 of 7 positions |
 | Score changed by hints | 0 of 7 (must always be 0) |
 
-**Not yet covered by tests** (stated so the gaps are visible): rendering of
-React components (tests cover the reducer, the validator, overlay selection
-and geometry, not the DOM); keyboard move entry; promotion through the UI
-picker; behaviour with Prolog killed mid-game; log replay; any measure of
-playing strength beyond the handful of tactical positions.
+**Not yet covered by automated tests** (stated so the gaps are visible):
+rendering of React components (tests cover the reducer, the validator, overlay
+selection, move-input decisions and geometry, not the DOM); the pointer and
+keyboard event wiring in `Board.tsx` and the promotion picker (their decision
+logic is unit-tested in `moveInput.ts`, and both were exercised by hand in a
+browser, but a DOM test harness was judged not worth its weight yet); Prolog
+dying mid-game (Prolog failing to start *is* tested); log replay; any measure
+of playing strength beyond the handful of tactical positions.
 
 **The iterative loop, applied once already.**
 
@@ -793,7 +797,8 @@ Built in this repository:
 
 Not in the MVP: opening book, pondering, multi-PV, endgame tablebases, PGN
 import/export, navigating back through the move list, symbolic terms in the
-evaluation, more than one simultaneous game.
+evaluation. (Several simultaneous visitors, each with a private game, were
+added afterwards for hosting: see section 15.)
 
 ---
 
@@ -810,8 +815,9 @@ evaluation, more than one simultaneous game.
 | **Misleading visualizations** | Overlays exist only as members of a fact's `viz`; play mode draws none; validator rejects overlays on non-existent squares | Rule limitations in section 6 (pinned defenders, x-rays) can still produce a technically true but unhelpful fact |
 | **Explanation faithfulness** | Every sentence tagged source + status; motif claims checked against the PV; disagreements between Prolog and search are reported, not hidden | "Confirmed" means "the PV captures a target", not a proof |
 | **Frontend complexity** | One reducer, pure `selectViz`, no state library, no chess logic, about 2,000 lines of TypeScript | The analysis panel will need splitting as features are added |
-| **Local server exposure** | Binds to 127.0.0.1 only; WebSocket handshake rejects non-local `Origin` | Any local process can connect; acceptable for a single-user tool |
-| **Concurrency** | One search at a time; search runs on a copy; results applied under the state lock only if `positionId` still matches | The TT is unlocked, which is safe only while that one-search rule holds |
+| **Local server exposure** | By default binds to 127.0.0.1 only and the WebSocket handshake rejects non-local `Origin` | Any local process can connect; acceptable for a single-user tool. Hosted mode deliberately relaxes both (section 15) |
+| **Concurrency** | One search at a time across all sessions (`*search-lock*`); search runs on a copy; results applied under that session's lock only if `positionId` still matches | The TT is unlocked, which is safe only because of that global lock; searches from different visitors queue |
+| **Overload when hosted** | Seat limit, idle timeout, depth and time ceilings, connection ceiling, 64 KB message limit, handshake timeout (section 15) | No per-visitor rate limit on commands; a seated visitor can still keep the single search slot busy |
 
 ---
 
@@ -837,6 +843,157 @@ term, visible in the breakdown.
 change scores before a benchmark justifies it; bitboards; an opening book;
 adding rules faster than "must stay silent" tests for them; any frontend
 convenience that requires the UI to know a chess rule.
+
+---
+
+## 15. Hosted Mode (added after the MVP)
+
+The MVP assumed one user on their own machine. To let a few non-technical
+testers play from a link, the engine gained a hosted configuration. The
+three-layer rule is unchanged; what changed is how many games exist and who
+may connect.
+
+**One container, one port.** The Lisp process answers plain HTTP GETs from an
+in-memory copy of the built frontend and upgrades `/ws` (any path, in fact) to
+a WebSocket. Files are looked up by exact key in a table filled at start-up,
+so a request path never reaches the file system. There is no separate web
+server and no cross-origin request: the page and the socket share an origin.
+
+**Sessions.** Every WebSocket connection owns a private `game`. `*game*` is
+bound per thread to the session that thread serves; each game has its own
+lock, its own `seq` counter and its own client. Nothing is shared between
+visitors except the search slot, the Prolog child process and its cache.
+
+**Capacity, so a small free machine degrades politely instead of falling over.**
+
+| Guard | Default when hosted | Behaviour at the limit |
+|---|---|---|
+| Seats (`SYMCHESS_MAX_SESSIONS`) | 8 | The next visitor gets `error` `server_full` and close code 1013; the page shows "every seat is taken" and retries every 10 s |
+| Idle timeout (`SYMCHESS_IDLE_SECONDS`) | 900 | `error` `idle_timeout`, then disconnect; the page does **not** auto-reconnect, so an abandoned tab cannot hold a seat |
+| Search depth / time ceilings | 7 plies / 3 s | Requests above the ceiling are clamped; `game_state` reports the real value and the UI only offers allowed presets |
+| One search at a time | always | Other visitors' searches queue; the time limit starts when a search begins |
+| Open sockets | 64 + 4 × seats | Further connections are closed on accept |
+| Handshake timeout | 15 s | Sockets that never finish a request are shut down |
+| Message size | 64 KB | Oversized frames end the session |
+
+**Origin policy.** Locally the default stays "local pages only", which
+protects a developer's machine from being driven by a web page they happen to
+visit. Hosted, `SYMCHESS_ALLOWED_ORIGINS=*` accepts any origin: visitors are
+anonymous, there are no cookies or credentials, and each connection can only
+ever affect its own game, so cross-site connections have nothing to steal.
+The seat limit bounds what they can consume.
+
+**Honest limits of this design.** A waiting search is charged against the
+engine's own clock in a timed game. With eight seats and up to 3 s per move,
+a visitor can in the worst case wait about 20 s for the engine to start
+thinking. There is no account system, so "a certain number of people" means
+a number of simultaneous connections, not a list of named people: anyone with
+the link can take a free seat. Games are not saved across a disconnect.
+
+Verified by `web/scripts/sessions.mjs`, which starts an engine with two seats
+and a three-second idle limit and checks private games, the seat limit,
+freed seats, the idle timeout, clamping, and static file serving.
+
+---
+
+## 16. Workbench Redesign and Credibility Fixes (second pass)
+
+Sections 7 and 10 describe the first UI. This pass replaced its look and
+tightened three things; the data flow and the three-layer rule are unchanged.
+
+### Fixes
+
+- **`stop_search` was inverted.** It only acted when no engine move was being
+  searched, so it could not stop the search that mattered. It now sets the
+  worker's flag to `:finish`, distinct from cancel (`t`): the search stops at
+  its next node check and its best result so far is **kept**. An analysis
+  search reports that result (`search_complete` carries `stopped: true`); a
+  search for the engine's own move plays it, so stopping can never leave the
+  game waiting for a move. With nothing running it is a no-op. Covered by the
+  end-to-end script: stops within a second, still explains the move, does not
+  move a piece in analysis, makes the engine move at once on its own turn, and
+  the engine answers commands afterwards.
+- **`Board.tsx` reset state during render.** Selection, drag and promotion
+  state are now cleared in an effect keyed on `positionId`.
+- **A verdict leak found while building the inspector.** A first version tied
+  a fact to a search verdict by shared squares, which labelled a pin
+  "confirmed" because an unrelated "Gives check" sentence named the same king
+  square. Explanation items now carry the `motif` they report on, and a
+  verdict is carried to a fact only where the two are provably the same
+  subject (an undefended piece and the move that captures it). Everything else
+  reads "static fact · not assessed by search".
+- **Prolog-unavailable path is now tested** in the Lisp suite: analysis is
+  `NIL`, no hints are invented, the search still returns a legal move, and the
+  explanation says it is search-only.
+
+### Visual identity: Glass Slate (third pass, built to the owner's mockup)
+
+The first redesign was rejected on review: flat outlined pieces, thick arrows
+and circles, a plain list for reasoning. It was rebuilt against a reference
+mockup, checking full-size captures against it after each change.
+
+| Element | Treatment |
+|---|---|
+| Palette | Blue-black background with a soft vignette, graphite panels, slate board; CSS variables throughout |
+| Type | Libre Baskerville, bundled with the app (`@fontsource`), so no font CDN is contacted |
+| Left panel | Wordmark, Play / Analysis switch, **Analysis layers** (icon tile, label, count, toggle switch) and **Display** switches (coordinates, move hints, attack arrows, subtle arrows) |
+| Board | Lit blue frame that pulses slowly while a search runs; coordinates outside the squares; a faint diagonal sheen on every square |
+| Pieces | Original Staunton-style SVG shapes (`Pieces.tsx`) painted in three passes from one outline: ivory or obsidian body, a shade gathered to the right, and a frost bloom from the upper left. No glyphs, no image files. `/#pieces` shows the set large for inspection (development only) |
+| Reasoning panel | Tabs (Reasoning, Plan, Variations, Facts); one card per fact or plan with icon, id, kind, source and status badges, sentence, and a **thumbnail** cropped to the squares the item names; a detail card pinned to the foot of the list |
+| Bottom | Search Trace: play / stop button and one card per completed depth (score, nodes, ms). Search Status: depth of limit, nodes, speed, Prolog ms |
+
+### Overlay language
+
+Overlays are lines and frames of light (an SVG glow per primitive).
+
+| Meaning | Style names (chosen by Prolog/search) | Drawn as |
+|---|---|---|
+| Best line | `pv` | blue arrow, with a blue frame on the square it starts from |
+| Pins, skewers | `pin`, `skewer` | violet beam through the line, violet frame on the pinned piece |
+| Threats | `threat`, `check`, `fork`, `hanging` | thin red-orange arrow, red frame |
+| Defences | `defend`, `support` | thin teal arrow |
+| Weak squares | `weak`, `weak_pawn` | amber frame with a light fill |
+| Plans | `plan` | dashed blue frame or arrow |
+
+### Layers and display switches
+
+Seven layer toggles select which **supplied** evidence is on the board: Best
+line, Pins, Threats, Defenses, Weak squares, Plans, Files & pawns. Each shows
+how many items the engine actually sent. Display switches only ever remove
+things: "Attack arrows" governs the attacker/defender arrows of a clicked
+square, "Subtle arrows" the secondary arrows a fact carries (supporting pawn,
+defenders, plan routes). A unit test asserts they never add a primitive.
+
+### Glass inspector
+
+Hovering or selecting a card isolates it: standing overlays drop to low
+opacity, a mask dims the board with holes cut at exactly the squares the item
+names, and the item's own primitives are redrawn on top, brighter. If an item
+supplied no primitives the board is not dimmed and the card says so.
+
+### What the mockup shows that was deliberately not built
+
+- **"Confidence: High".** The engine produces no confidence value, so the
+  detail card has Source, Used in and Status only.
+- **"confirmed" on every fact.** Status is whatever the search actually said:
+  most root facts read `static` (a fact about the position, not assessed by
+  search); plans read `heuristic`; `confirmed` appears only where the search
+  line acts on that very fact.
+- **Settings and filter icons** in the panel header: there is nothing for them
+  to open yet, and a control that does nothing is worse than none.
+
+### Deep links
+
+`?fen=<FEN>&layers=all&analyse=1&select=f2` loads a position in analysis mode,
+switches layers on, starts a search and opens the inspector on an item. It
+only sends commands the UI could send by hand, and it is how the full-size
+verification captures are taken (headless Chrome, 1672 x 941).
+
+### Protocol additions (all optional, backward compatible)
+
+`fact.label` (the subject in a few words), `explanation.items[].motif`,
+`search_complete.stopped`, and a FEN field in the UI that uses the existing
+`new_game { fen }` command.
 
 ---
 

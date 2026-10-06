@@ -140,6 +140,39 @@ send({ type: 'undo_move' });
 game = await until((m) => m.type === 'game_state' && m.history.length === 0, 'after undo');
 check('undo restores the position', game.fen.startsWith('r1bqkbnr/ppp2ppp/2np4/1B2p3'));
 
+console.log('stop_search');
+// Still in analysis mode on the pin position. Ask for far more search than
+// could ever finish, then stop it.
+send({ type: 'stop_search' });
+send({ type: 'set_engine_depth', depth: 30, moveTimeMs: 60000 });
+game = await until((m) => m.type === 'game_state' && m.settings.depth === 30, 'deep settings');
+check('stop_search with nothing running is harmless', game.status === 'active');
+send({ type: 'request_analysis', positionId: game.positionId });
+await until((m) => m.type === 'search_update' && m.depth >= 3, 'search under way');
+let stoppedAt = Date.now();
+send({ type: 'stop_search' });
+const halted = await until((m) => m.type === 'search_complete', 'search to stop', 5000);
+check('stop_search ends a running analysis within a second', Date.now() - stoppedAt < 1000);
+check('the stopped search still reports the best move it had', halted.stopped === true && halted.bestMove !== null && halted.depth < 30);
+check('...and its explanation', (await until(ofType('explanation'), 'explanation after stop')).move.uci === halted.bestMove.uci);
+check('stopping an analysis does not move a piece', halted.positionId === game.positionId);
+send({ type: 'sync' });
+check('the engine keeps answering commands afterwards', (await until(ofType('game_state'), 'sync after stop')).positionId === game.positionId);
+
+const beforeStopGame = game.positionId;
+send({ type: 'new_game', humanColor: 'white', mode: 'play' });
+game = await until((m) => m.type === 'game_state' && m.positionId > beforeStopGame, 'play game for stop');
+send({ type: 'make_move', uci: 'e2e4', positionId: game.positionId });
+await until(ofType('search_started'), 'engine thinking');
+stoppedAt = Date.now();
+send({ type: 'stop_search' });
+const forced = await until((m) => m.type === 'move_played' && m.move.by === 'engine', 'engine to move now', 5000);
+check('stop_search during the engine turn makes it move now, not stall', Date.now() - stoppedAt < 1500 && forced.move.uci.length >= 4);
+game = await until((m) => m.type === 'game_state' && m.history.length === 2, 'state after forced move');
+check('thinking state is cleared and it is the human turn', !game.engineThinking && game.turn === 'white');
+send({ type: 'set_engine_depth', depth: 5, moveTimeMs: 1500 });
+game = await until((m) => m.type === 'game_state' && m.settings.depth === 5, 'settings restored');
+
 console.log('clock');
 send({ type: 'set_time_control', baseMs: 1000, incrementMs: 0 });
 const beforeClock = game.positionId;

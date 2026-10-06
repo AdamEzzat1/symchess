@@ -1,14 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatClock } from '../geometry';
 import type { ClientCommand, Color, GameState } from '../protocol';
+import { LAYERS, type LayerId } from '../selectViz';
+import { styleSpec } from './Overlays';
+import { Icon, type IconName } from './icons';
+import { PieceIcon } from './Pieces';
 
-const PIECE_GLYPH: Record<string, string> = {
-  p: '♟︎',
-  n: '♞︎',
-  b: '♝︎',
-  r: '♜︎',
-  q: '♛︎',
-};
 const CAPTURE_ORDER = ['q', 'r', 'b', 'n', 'p'];
 
 /** Re-render on an interval while a clock is running. Display only. */
@@ -38,26 +35,26 @@ export function PlayerBar({ game, color, receivedAt }: PlayerBarProps) {
   const shown = running ? snapshot - (now - receivedAt) : snapshot;
 
   const isEngine = settings.mode === 'play' && settings.humanColor !== color;
-  const name = settings.mode === 'analysis' ? (color === 'white' ? 'White' : 'Black') : isEngine ? 'SymChess engine' : 'You';
+  const side = color === 'white' ? 'White' : 'Black';
+  const name = settings.mode === 'analysis' ? side : isEngine ? 'SymChess' : 'You';
   const captured = [...game.captured[color]].sort(
     (a, b) => CAPTURE_ORDER.indexOf(a) - CAPTURE_ORDER.indexOf(b),
   );
+  // Captured pieces belong to the other side, so draw them in its colour.
+  const theirs = color === 'white' ? 'b' : 'w';
   const toMove = game.status === 'active' && game.turn === color;
 
   return (
     <div className={`player${toMove ? ' player-to-move' : ''}`}>
-      <span className={`player-dot player-dot-${color}`} aria-hidden="true" />
-      <div className="player-main">
-        <span className="player-name">
-          {name}
-          {isEngine && game.engineThinking && <span className="thinking"> thinking…</span>}
-        </span>
-        <span className={`captured captured-by-${color}`} aria-label={`Pieces captured by ${color}`}>
-          {captured.map((p, i) => (
-            <span key={i}>{PIECE_GLYPH[p]}</span>
-          ))}
-        </span>
-      </div>
+      <span className={`player-mark player-mark-${color}`} aria-hidden="true" />
+      <span className="player-name">{name}</span>
+      {settings.mode === 'play' && <span className="player-side">{side}</span>}
+      {isEngine && game.engineThinking && <span className="thinking">thinking</span>}
+      <span className="captured" aria-label={`Pieces captured by ${color}: ${captured.length}`}>
+        {captured.map((p, i) => (
+          <PieceIcon key={i} code={`${theirs}${p.toUpperCase()}`} size={17} />
+        ))}
+      </span>
       {clocks.enabled && (
         <span className={`clock${running ? ' clock-running' : ''}${shown < 20000 ? ' clock-low' : ''}`}>
           {formatClock(shown)}
@@ -67,31 +64,18 @@ export function PlayerBar({ game, color, receivedAt }: PlayerBarProps) {
   );
 }
 
-export function MoveList({ game }: { game: GameState }) {
-  const endRef = useRef<HTMLLIElement>(null);
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [game.history.length]);
-
-  const rows: { number: number; white?: string; black?: string }[] = [];
-  game.history.forEach((entry, index) => {
-    const row = Math.floor(index / 2);
-    rows[row] ??= { number: row + 1 };
-    if (index % 2 === 0) rows[row]!.white = entry.san;
-    else rows[row]!.black = entry.san;
-  });
-
+/** Move history as running text: present, but not the centre of attention. */
+export function MoveStrip({ game }: { game: GameState }) {
+  if (game.history.length === 0) return <p className="moves moves-empty">No moves yet.</p>;
   return (
-    <ol className="moves" aria-label="Move history">
-      {rows.length === 0 && <li className="moves-empty">No moves yet.</li>}
-      {rows.map((row, i) => (
-        <li key={row.number} ref={i === rows.length - 1 ? endRef : undefined} className="moves-row">
-          <span className="moves-number">{row.number}.</span>
-          <span className="moves-san">{row.white ?? ''}</span>
-          <span className="moves-san">{row.black ?? ''}</span>
-        </li>
+    <p className="moves" aria-label="Move history">
+      {game.history.map((entry, index) => (
+        <span key={entry.ply} className={index === game.history.length - 1 ? 'move move-last' : 'move'}>
+          {index % 2 === 0 && <span className="move-number">{Math.floor(index / 2) + 1}.</span>}
+          {entry.san}{' '}
+        </span>
       ))}
-    </ol>
+    </p>
   );
 }
 
@@ -109,10 +93,131 @@ export function StatusBanner({ game }: { game: GameState }) {
   if (game.status === 'active') return null;
   const winner = game.winner ? `${game.winner === 'white' ? 'White' : 'Black'} wins` : null;
   return (
-    <div className="banner" role="status">
+    <p className="banner" role="status">
       <strong>{STATUS_TEXT[game.status] ?? game.status}</strong>
       {winner && <span> · {winner}</span>}
-    </div>
+    </p>
+  );
+}
+
+const LAYER_ICON: Record<LayerId, IconName> = {
+  best: 'arrow',
+  pins: 'link',
+  threats: 'target',
+  defenses: 'shield',
+  weak: 'grid',
+  plans: 'plan',
+  structure: 'files',
+};
+
+interface SwitchRowProps {
+  icon: IconName;
+  color?: string;
+  label: string;
+  hint?: string;
+  count?: number;
+  checked: boolean;
+  onChange: () => void;
+  tile?: boolean;
+}
+
+/** One labelled on/off switch. A real checkbox underneath, so it is keyboard- and screen-reader-operable. */
+function SwitchRow({ icon, color, label, hint, count, checked, onChange, tile }: SwitchRowProps) {
+  return (
+    <label className={`switch-row${count === 0 ? ' switch-row-empty' : ''}`} title={hint}>
+      <span className={tile ? 'switch-icon switch-icon-tile' : 'switch-icon'} style={color ? { color } : undefined}>
+        <Icon name={icon} size={tile ? 19 : 17} />
+      </span>
+      <span className="switch-label">{label}</span>
+      {count !== undefined && count > 0 && <span className="switch-count">{count}</span>}
+      <input type="checkbox" className="switch-input" checked={checked} onChange={onChange} />
+      <span className="switch" aria-hidden="true" />
+    </label>
+  );
+}
+
+interface LayerRailProps {
+  enabled: ReadonlySet<LayerId>;
+  counts: Record<LayerId, number>;
+  onToggle: (id: LayerId) => void;
+}
+
+/** Which engine-supplied evidence is drawn on the board. Selects; never invents. */
+export function LayerRail({ enabled, counts, onToggle }: LayerRailProps) {
+  return (
+    <section className="rail-section" aria-label="Analysis layers">
+      <h2 className="rail-title">Analysis layers</h2>
+      {LAYERS.map((layer) => (
+        <SwitchRow
+          key={layer.id}
+          tile
+          icon={LAYER_ICON[layer.id]}
+          color={styleSpec(layer.swatch).color}
+          label={layer.label}
+          count={counts[layer.id]}
+          checked={enabled.has(layer.id)}
+          onChange={() => onToggle(layer.id)}
+        />
+      ))}
+    </section>
+  );
+}
+
+export interface DisplayOptions {
+  coordinates: boolean;
+  moveHints: boolean;
+  attackArrows: boolean;
+  subtleArrows: boolean;
+}
+
+export const DEFAULT_DISPLAY: DisplayOptions = {
+  coordinates: true,
+  moveHints: true,
+  attackArrows: true,
+  subtleArrows: true,
+};
+
+const DISPLAY_ROWS: { key: keyof DisplayOptions; label: string; icon: IconName; color?: string; hint: string }[] = [
+  { key: 'coordinates', label: 'Coordinates', icon: 'coords', hint: 'File letters and rank numbers around the board' },
+  { key: 'moveHints', label: 'Move hints', icon: 'bulb', hint: 'Dots on the squares the selected piece may move to' },
+  {
+    key: 'attackArrows',
+    label: 'Attack arrows',
+    icon: 'attack',
+    color: '#ff6b5f',
+    hint: 'When you click a square: arrows from the pieces attacking and defending it',
+  },
+  {
+    key: 'subtleArrows',
+    label: 'Subtle arrows',
+    icon: 'subtle',
+    color: '#4aa8ff',
+    hint: 'Secondary arrows a fact carries: supporting pawns, defenders, plan routes',
+  },
+];
+
+interface DisplayRailProps {
+  options: DisplayOptions;
+  onToggle: (key: keyof DisplayOptions) => void;
+}
+
+/** How things are drawn. None of these change what the engine reports. */
+export function DisplayRail({ options, onToggle }: DisplayRailProps) {
+  return (
+    <section className="rail-section" aria-label="Display">
+      <h2 className="rail-title">Display</h2>
+      {DISPLAY_ROWS.map((row) => (
+        <SwitchRow
+          key={row.key}
+          icon={row.icon}
+          color={row.color}
+          label={row.label}
+          hint={row.hint}
+          checked={options[row.key]}
+          onChange={() => onToggle(row.key)}
+        />
+      ))}
+    </section>
   );
 }
 
@@ -124,9 +229,13 @@ const TIME_CONTROLS: { label: string; baseMs: number | null; incrementMs: number
   { label: '10 | 5', baseMs: 600_000, incrementMs: 5000 },
 ];
 
-/** Preset options plus the engine's actual value, so the control never lies. */
-function withCurrent(presets: number[], current: number): number[] {
-  return presets.includes(current) ? presets : [...presets, current].sort((a, b) => a - b);
+/**
+ * Presets the server allows, plus the engine's actual value, so the control
+ * neither offers something the server will clamp nor misreports the setting.
+ */
+function withCurrent(presets: number[], current: number, max: number): number[] {
+  const allowed = presets.filter((p) => p <= max);
+  return allowed.includes(current) ? allowed : [...allowed, current].sort((a, b) => a - b);
 }
 
 interface ControlsProps {
@@ -134,15 +243,19 @@ interface ControlsProps {
   disabled: boolean;
   onFlip: () => void;
   send: (command: ClientCommand) => void;
+  maxDepth: number;
+  maxMoveTimeMs: number;
 }
 
-export function Controls({ game, disabled, onFlip, send }: ControlsProps) {
+export function Controls({ game, disabled, onFlip, send, maxDepth, maxMoveTimeMs }: ControlsProps) {
   const { settings, clocks } = game;
   const [side, setSide] = useState<Color>(settings.humanColor);
   const [timeIndex, setTimeIndex] = useState(() =>
     Math.max(
       0,
-      TIME_CONTROLS.findIndex((t) => (clocks.enabled ? t.baseMs !== null && t.incrementMs === clocks.incrementMs : t.baseMs === null)),
+      TIME_CONTROLS.findIndex((t) =>
+        clocks.enabled ? t.baseMs !== null && t.incrementMs === clocks.incrementMs : t.baseMs === null,
+      ),
     ),
   );
 
@@ -153,30 +266,58 @@ export function Controls({ game, disabled, onFlip, send }: ControlsProps) {
   };
 
   return (
-    <div className="controls">
-      <div className="control-row">
-        <button type="button" className="btn btn-primary" onClick={newGame} disabled={disabled}>
-          New game
-        </button>
-        <label className="field">
-          <span>Play as</span>
-          <select value={side} onChange={(e) => setSide(e.target.value as Color)} disabled={disabled}>
-            <option value="white">White</option>
-            <option value="black">Black</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Clock</span>
-          <select value={timeIndex} onChange={(e) => setTimeIndex(Number(e.target.value))} disabled={disabled}>
-            {TIME_CONTROLS.map((t, i) => (
-              <option key={t.label} value={i}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <div className="control-row">
+    <details className="rail-section game-controls">
+      <summary className="rail-title">Game</summary>
+      <div className="controls">
+      <button type="button" className="btn btn-primary" onClick={newGame} disabled={disabled}>
+        New game
+      </button>
+      <label className="field">
+        <span>Play as</span>
+        <select value={side} onChange={(e) => setSide(e.target.value as Color)} disabled={disabled}>
+          <option value="white">White</option>
+          <option value="black">Black</option>
+        </select>
+      </label>
+      <label className="field">
+        <span>Clock</span>
+        <select value={timeIndex} onChange={(e) => setTimeIndex(Number(e.target.value))} disabled={disabled}>
+          {TIME_CONTROLS.map((t, i) => (
+            <option key={t.label} value={i}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>Depth</span>
+        <select
+          value={settings.depth}
+          onChange={(e) => send({ type: 'set_engine_depth', depth: Number(e.target.value) })}
+          disabled={disabled}
+        >
+          {withCurrent([2, 3, 4, 5, 6, 7, 8, 10, 12], settings.depth, maxDepth).map((d) => (
+            <option key={d} value={d}>
+              {d} plies
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>Time per move</span>
+        <select
+          value={settings.moveTimeMs}
+          onChange={(e) => send({ type: 'set_engine_depth', moveTimeMs: Number(e.target.value) })}
+          disabled={disabled}
+        >
+          {withCurrent([500, 1000, 3000, 5000, 10000], settings.moveTimeMs, maxMoveTimeMs).map((ms) => (
+            <option key={ms} value={ms}>
+              {ms / 1000} s
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="control-actions">
         <button
           type="button"
           className="btn"
@@ -186,7 +327,7 @@ export function Controls({ game, disabled, onFlip, send }: ControlsProps) {
           Take back
         </button>
         <button type="button" className="btn" onClick={onFlip}>
-          Flip board
+          Flip
         </button>
         <button
           type="button"
@@ -197,36 +338,7 @@ export function Controls({ game, disabled, onFlip, send }: ControlsProps) {
           Resign
         </button>
       </div>
-      <div className="control-row">
-        <label className="field">
-          <span>Search depth</span>
-          <select
-            value={settings.depth}
-            onChange={(e) => send({ type: 'set_engine_depth', depth: Number(e.target.value) })}
-            disabled={disabled}
-          >
-            {withCurrent([2, 3, 4, 5, 6, 7, 8, 10, 12], settings.depth).map((d) => (
-              <option key={d} value={d}>
-                {d} plies
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>Time per move</span>
-          <select
-            value={settings.moveTimeMs}
-            onChange={(e) => send({ type: 'set_engine_depth', moveTimeMs: Number(e.target.value) })}
-            disabled={disabled}
-          >
-            {withCurrent([500, 1000, 3000, 5000, 10000], settings.moveTimeMs).map((ms) => (
-              <option key={ms} value={ms}>
-                {ms / 1000} s
-              </option>
-            ))}
-          </select>
-        </label>
       </div>
-    </div>
+    </details>
   );
 }

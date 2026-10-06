@@ -100,6 +100,8 @@ export interface Fact {
   side: Color | null;
   squares: Square[];
   text: string;
+  /** The fact's subject in a few words, e.g. "black knight c6". */
+  label?: string;
   viz: Viz[];
   /** "explanation" or "mirrors_eval": what the engine actually uses this fact for. */
   use: string;
@@ -132,10 +134,24 @@ export interface ExplanationItem {
   status: 'measured' | 'confirmed' | 'unconfirmed' | 'overruled' | 'heuristic';
   text: string;
   squares: Square[];
+  /** The Prolog move motif this sentence reports on, if any. */
+  motif?: string | null;
 }
 
 export type ServerMessage =
-  | { type: 'hello'; seq: number; protocol: number; engine: string; lisp: string; prolog: string | null }
+  | {
+      type: 'hello';
+      seq: number;
+      protocol: number;
+      engine: string;
+      lisp: string;
+      prolog: string | null;
+      /** Seats in use / available on this server, and its per-player ceilings. */
+      players?: number;
+      maxPlayers?: number;
+      maxDepth?: number;
+      maxMoveTimeMs?: number;
+    }
   | GameState
   | {
       type: 'move_played';
@@ -161,6 +177,8 @@ export type ServerMessage =
       searchId: number;
       purpose: 'play' | 'analysis';
       evalBreakdown: EvalBreakdown;
+      /** True when stop_search ended the search before its own limits did. */
+      stopped?: boolean;
     } & SearchInfo)
   | {
       type: 'symbolic_analysis';

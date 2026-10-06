@@ -6,6 +6,8 @@ A classical, explainable chess AI in three layers:
 - **Prolog** (`knowledge/`) owns symbolic meaning: pins, forks, weak squares, plans.
 - **TypeScript + React** (`web/`) owns the board, the overlays and the reasoning panel.
 
+![SymChess analysis view: threats and weak pawns drawn on the board, fact cards on the right, the search trace below](docs/screenshot.png)
+
 The design, the reasoning behind it and the measured results are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -44,6 +46,34 @@ Open http://localhost:5173. The page reconnects by itself if the engine is
 restarted. If Prolog cannot be started the engine still plays, on search alone,
 and the UI says so.
 
+## Play it without Vite
+
+`npm --prefix web run build` writes `web/dist`. When that folder exists the
+engine serves it itself, so the whole app is one process on one port:
+start the engine and open http://127.0.0.1:8765.
+
+## Host it for other people
+
+The engine can run as a small public server: each visitor gets a private
+game, and a seat limit keeps a free machine from being overwhelmed.
+
+```bash
+docker build -t symchess .
+```
+
+```bash
+docker run --rm -p 7860:7860 symchess
+```
+
+The image defaults to 8 simultaneous players, a 15-minute idle timeout, and a
+ceiling of 7 plies / 3 seconds per move. Change them with environment
+variables (`SYMCHESS_MAX_SESSIONS`, `SYMCHESS_IDLE_SECONDS`,
+`SYMCHESS_MAX_DEPTH`, `SYMCHESS_MAX_MOVE_MS`); the full list is at the top of
+`engine/src/server.lisp`.
+
+To publish it for free on Hugging Face Spaces, see the instructions at the top
+of [deploy/huggingface/deploy.py](deploy/huggingface/deploy.py).
+
 ## Test
 
 ```bash
@@ -63,6 +93,13 @@ WebSocket and records the engine's messages for the frontend contract test:
 
 ```bash
 npm --prefix web run e2e
+```
+
+Several visitors at once (starts its own engine with two seats; needs a
+frontend build, and `SBCL` set if sbcl is not on `PATH`):
+
+```bash
+npm --prefix web run sessions
 ```
 
 Performance, and whether the symbolic layer is helping the search:

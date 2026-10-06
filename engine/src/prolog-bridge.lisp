@@ -24,8 +24,13 @@
 (defvar *symbolic-cache-lock* (sb-thread:make-mutex :name "symbolic-cache"))
 (defconstant +symbolic-cache-limit+ 512)
 
+(defvar *swipl-program* nil
+  "Overrides the swipl executable. Tests bind this to a program that does not
+exist to exercise the Prolog-unavailable path.")
+
 (defun find-swipl ()
-  (or (sb-ext:posix-getenv "SYMCHESS_SWIPL")
+  (or *swipl-program*
+      (sb-ext:posix-getenv "SYMCHESS_SWIPL")
       (find-if #'probe-file
                '("C:/Program Files/swipl/bin/swipl.exe"
                  "/usr/bin/swipl" "/usr/local/bin/swipl" "/opt/homebrew/bin/swipl"))

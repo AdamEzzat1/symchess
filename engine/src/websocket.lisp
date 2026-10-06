@@ -105,52 +105,59 @@ request line), or NIL on EOF / oversized request."
       (when (and colon (string-equal name (subseq line 0 colon)))
         (return (string-trim " " (subseq line (1+ colon))))))))
 
+(defvar *allowed-origins* nil
+  "NIL: only pages served from this machine may connect (the default, which
+protects a developer's own computer). :ANY: any page may connect; used when
+hosting, where every visitor gets an anonymous game of their own and there is
+nothing to steal. Otherwise a list of exact origin strings.")
+
 (defun local-origin-p (origin)
-  "Only pages served from this machine may drive the engine. Browsers always
-send Origin on WebSocket handshakes; non-browser tools usually send none."
-  (or (null origin)
-      (some (lambda (prefix)
-              (let ((n (length prefix)))
-                (and (>= (length origin) n)
-                     (string-equal prefix origin :end2 n)
-                     (or (= (length origin) n) (char= (char origin n) #\:)))))
-            '("http://localhost" "http://127.0.0.1" "http://[::1]"
-              "https://localhost" "https://127.0.0.1"))))
+  (some (lambda (prefix)
+          (let ((n (length prefix)))
+            (and (>= (length origin) n)
+                 (string-equal prefix origin :end2 n)
+                 (or (= (length origin) n) (char= (char origin n) #\:)))))
+        '("http://localhost" "http://127.0.0.1" "http://[::1]"
+          "https://localhost" "https://127.0.0.1")))
+
+(defun origin-allowed-p (origin)
+  "Browsers always send Origin on WebSocket handshakes; non-browser tools
+usually send none, and are allowed."
+  (cond ((null origin) t)
+        ((eq *allowed-origins* :any) t)
+        ((null *allowed-origins*) (local-origin-p origin))
+        (t (or (local-origin-p origin)
+               (member origin *allowed-origins* :test #'string-equal)))))
 
 (defun write-ascii (stream text)
   (write-sequence (sb-ext:string-to-octets text :external-format :latin-1) stream))
 
-(defun ws-handshake (stream)
-  "Perform the server side of the opening handshake. Returns T on success."
-  (let* ((lines (read-http-headers stream))
-         (key (and lines (header-value lines "Sec-WebSocket-Key")))
-         (origin (and lines (header-value lines "Origin"))))
-    (cond ((null lines) nil)
-          ((null key)
-           (write-ascii stream (format nil "HTTP/1.1 200 OK~C~CContent-Type: text/plain~C~CContent-Length: 28~C~CConnection: close~C~C~C~Csymchess engine (WebSocket)~%"
-                                       #\Return #\Newline #\Return #\Newline
-                                       #\Return #\Newline #\Return #\Newline
-                                       #\Return #\Newline))
-           (finish-output stream)
-           nil)
-          ((not (local-origin-p origin))
-           (write-ascii stream (format nil "HTTP/1.1 403 Forbidden~C~CConnection: close~C~C~C~C"
-                                       #\Return #\Newline #\Return #\Newline
-                                       #\Return #\Newline))
-           (finish-output stream)
-           nil)
-          (t
-           (write-ascii stream
-                        (format nil "HTTP/1.1 101 Switching Protocols~C~CUpgrade: websocket~C~CConnection: Upgrade~C~CSec-WebSocket-Accept: ~A~C~C~C~C"
-                                #\Return #\Newline #\Return #\Newline #\Return #\Newline
-                                (ws-accept-key key)
-                                #\Return #\Newline #\Return #\Newline))
-           (finish-output stream)
-           t))))
+(defun http-respond (stream status content-type body &key (cache "no-cache") head-only)
+  "Write a complete HTTP/1.1 response and flush. BODY is an octet vector."
+  (let ((crlf (coerce '(#\Return #\Newline) 'string)))
+    (write-ascii stream
+                 (format nil "HTTP/1.1 ~A~AContent-Type: ~A~AContent-Length: ~D~ACache-Control: ~A~AX-Content-Type-Options: nosniff~AConnection: close~A~A"
+                         status crlf content-type crlf (length body) crlf cache crlf crlf
+                         crlf crlf))
+    (unless head-only (write-sequence body stream))
+    (finish-output stream)))
+
+(defun http-respond-text (stream status text)
+  (http-respond stream status "text/plain; charset=utf-8"
+                (sb-ext:string-to-octets text :external-format :utf-8)))
+
+(defun ws-accept (stream key)
+  "Send the 101 response that completes a WebSocket opening handshake."
+  (let ((crlf (coerce '(#\Return #\Newline) 'string)))
+    (write-ascii stream
+                 (format nil "HTTP/1.1 101 Switching Protocols~AUpgrade: websocket~AConnection: Upgrade~ASec-WebSocket-Accept: ~A~A~A"
+                         crlf crlf crlf (ws-accept-key key) crlf crlf))
+    (finish-output stream)))
 
 ;;; ----------------------------------------------------------------- frames
 
-(defconstant +ws-max-payload+ (* 1024 1024))
+;; Commands are tiny; a small ceiling keeps a hostile client cheap.
+(defconstant +ws-max-payload+ (* 64 1024))
 
 (defun ws-write-frame (stream opcode payload)
   (let ((len (length payload)))

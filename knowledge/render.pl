@@ -55,11 +55,42 @@ fact_use(doubled_pawns, mirrors_eval) :- !.
 fact_use(_, explanation).
 
 fact_dict(Id-Fact,
-          _{id:Id, kind:Kind, side:Side, squares:Names, text:Text, viz:VizDicts, use:Use}) :-
+          _{id:Id, kind:Kind, side:Side, squares:Names, text:Text, label:Label,
+            viz:VizDicts, use:Use}) :-
     describe(Fact, Kind, Side, Squares, Text, Viz),
+    fact_label(Fact, Label),
     maplist(sq_name, Squares, Names),
     maplist(viz_dict, Viz, VizDicts),
     fact_use(Kind, Use).
+
+%   fact_label(+Fact, -Label): the subject of a fact in three or four words,
+%   for compact lists ("black knight c6"). The full sentence stays in `text`.
+piece_label(C, T, Sq, Label) :-
+    sq_name(Sq, S),
+    format(atom(Label), '~w ~w ~w', [C, T, S]).
+file_label(F, Label) :-
+    file_letter(F, L),
+    format(atom(Label), '~w-file', [L]).
+
+fact_label(check(_, KSq, _), Label) :-
+    sq_name(KSq, S), format(atom(Label), 'king ~w', [S]).
+fact_label(pin(_, PC, _, _, T, Sq, _, _), Label) :-
+    opponent(PC, C), piece_label(C, T, Sq, Label).
+fact_label(skewer(PC, _, _, FT, FSq, _, _), Label) :-
+    opponent(PC, C), piece_label(C, FT, FSq, Label).
+fact_label(fork(C, T, From, _), Label) :- piece_label(C, T, From, Label).
+fact_label(hanging(C, T, Sq, _), Label) :- piece_label(C, T, Sq, Label).
+fact_label(threatened(C, T, Sq, _, _), Label) :- piece_label(C, T, Sq, Label).
+fact_label(overloaded(C, T, Sq, _), Label) :- piece_label(C, T, Sq, Label).
+fact_label(open_file(F), Label) :- file_label(F, Label).
+fact_label(semi_open_file(C, F), Label) :-
+    file_label(F, FL), format(atom(Label), '~w for ~w', [FL, C]).
+fact_label(passed_pawn(C, Sq), Label) :- piece_label(C, pawn, Sq, Label).
+fact_label(isolated_pawn(C, Sq), Label) :- piece_label(C, pawn, Sq, Label).
+fact_label(doubled_pawns(C, F, _), Label) :-
+    file_label(F, FL), format(atom(Label), '~w pawns ~w', [C, FL]).
+fact_label(weak_square(_, Sq, _), Label) :- sq_name(Sq, Label).
+fact_label(king_shield(C, KSq, _), Label) :- piece_label(C, king, KSq, Label).
 
 %   describe(+Fact, -Kind, -BenefitingSide, -Squares, -Text, -Viz)
 

@@ -4,6 +4,7 @@
 
 import type {
   EvalBreakdown,
+  Score,
   GameState,
   MessageOf,
   SearchInfo,
@@ -11,6 +12,15 @@ import type {
 } from './protocol';
 
 export type Connection = 'connecting' | 'open' | 'closed';
+
+/** One completed search depth, for the search trace. */
+export interface TraceTick {
+  depth: number;
+  score: Score;
+  /** Cumulative nodes and elapsed time when this depth finished. */
+  nodes: number;
+  timeMs: number;
+}
 
 export interface SearchView {
   searchId: number;
@@ -20,6 +30,11 @@ export interface SearchView {
   symbolicHints: boolean;
   info: SearchInfo | null;
   evalBreakdown: EvalBreakdown | null;
+  /** Every depth this search has completed so far, in order. */
+  trace: TraceTick[];
+  stopped: boolean;
+  /** The depth limit this search was started with. */
+  maxDepth: number;
 }
 
 export interface LogEntry {
@@ -42,6 +57,8 @@ export interface AppState {
   inspection: MessageOf<'inspection'> | null;
   errors: { key: number; code: string; message: string }[];
   log: LogEntry[];
+  /** Set when the server turned this client away rather than failing. */
+  refusal: { code: 'server_full' | 'idle_timeout'; message: string } | null;
 }
 
 export const initialState: AppState = {
@@ -56,6 +73,7 @@ export const initialState: AppState = {
   inspection: null,
   errors: [],
   log: [],
+  refusal: null,
 };
 
 export type Action =
@@ -68,6 +86,15 @@ const LOG_LIMIT = 40;
 function pick(m: ServerMessage): SearchInfo {
   const { depth, score, nodes, timeMs, nps, bestMove, pv, pvUci } = m as MessageOf<'search_update'>;
   return { depth, score, nodes, timeMs, nps, bestMove, pv, pvUci };
+}
+
+function addTick(
+  trace: TraceTick[],
+  m: { depth: number; score: Score; nodes: number; timeMs: number },
+): TraceTick[] {
+  // search_complete repeats the last depth; keep one tick per depth.
+  const rest = trace.filter((t) => t.depth !== m.depth);
+  return [...rest, { depth: m.depth, score: m.score, nodes: m.nodes, timeMs: m.timeMs }];
 }
 
 /** True when a position-tagged message no longer describes the board on screen. */
@@ -100,8 +127,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'connection':
       // A new socket starts a new event stream: forget everything that was
       // derived from the old one and wait for the engine's fresh snapshot.
+      // A refusal outlives the socket (that is when it is on screen) and is
+      // only cleared once the server actually lets us in with a `hello`, so
+      // the "server full" screen does not flicker on every retry.
       return action.status === 'open'
-        ? { ...initialState, connection: 'open' }
+        ? { ...initialState, connection: 'open', refusal: state.refusal }
         : { ...state, connection: action.status };
 
     case 'dismiss_error':
@@ -120,7 +150,7 @@ export function reducer(state: AppState, action: Action): AppState {
 
       switch (m.type) {
         case 'hello':
-          return { ...base, hello: m };
+          return { ...base, hello: m, refusal: null };
 
         case 'game_state': {
           const moved = state.game === null || state.game.positionId !== m.positionId;
@@ -157,16 +187,26 @@ export function reducer(state: AppState, action: Action): AppState {
               symbolicHints: m.symbolicHints,
               info: null,
               evalBreakdown: null,
+              trace: [],
+              stopped: false,
+              maxDepth: m.maxDepth,
             },
           };
 
         case 'search_update':
-          return { ...base, search: { ...state.search!, info: pick(m) } };
+          return { ...base, search: { ...state.search!, info: pick(m), trace: addTick(state.search!.trace, m) } };
 
         case 'search_complete':
           return {
             ...base,
-            search: { ...state.search!, running: false, info: pick(m), evalBreakdown: m.evalBreakdown },
+            search: {
+              ...state.search!,
+              running: false,
+              info: pick(m),
+              evalBreakdown: m.evalBreakdown,
+              trace: addTick(state.search!.trace, m),
+              stopped: m.stopped === true,
+            },
           };
 
         case 'symbolic_analysis':
@@ -179,6 +219,9 @@ export function reducer(state: AppState, action: Action): AppState {
           return { ...base, inspection: m };
 
         case 'error':
+          if (m.code === 'server_full' || m.code === 'idle_timeout') {
+            return { ...base, refusal: { code: m.code, message: m.message } };
+          }
           return {
             ...base,
             errors: [...state.errors.slice(-3), { key: m.seq, code: m.code, message: m.message }],

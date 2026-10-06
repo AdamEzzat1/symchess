@@ -283,6 +283,13 @@ test(every_visual_belongs_to_a_fact, [nondet]) :-
     forall(member(Fact, Reply.facts),
            ( get_dict(id, Fact, _), get_dict(text, Fact, _), is_list(Fact.viz) )).
 
+test(facts_carry_a_short_label, [nondet]) :-
+    fen_pos("r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1", Pos),
+    analyze(Pos, [], Reply),
+    member(Fact, Reply.facts),
+    get_dict(kind, Fact, pin),
+    get_dict(label, Fact, 'black knight c6').
+
 test(plans_cite_existing_facts, [nondet]) :-
     fen_pos("4k3/8/8/4n3/8/8/4R3/4K3 w - - 0 1", Pos),
     analyze(Pos, [], Reply),

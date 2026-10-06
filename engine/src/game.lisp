@@ -1,10 +1,16 @@
 ;;;; game.lisp -- authoritative game state, protocol commands and events.
 ;;;;
-;;;; Threading model
-;;;;   *state-lock*  guards *game*. Every command handler runs under it.
-;;;;   *send-lock*   guards the outbound sequence number, the event log and
-;;;;                 the client list, so `seq` order == wire order == log order.
-;;;;   Lock order is always state -> send.
+;;;; Sessions
+;;;;   Every WebSocket connection owns one GAME. *GAME* is bound per thread to
+;;;;   the session that thread is serving; nothing is shared between sessions
+;;;;   except the search (one at a time, see *SEARCH-LOCK*), the Prolog child
+;;;;   and its cache.
+;;;;
+;;;; Threading model, per session
+;;;;   (game-lock g)       guards the game. Every command handler runs under it.
+;;;;   (game-send-lock g)  guards the outbound sequence number, so `seq` order
+;;;;                       is wire order.
+;;;;   Lock order is always game -> send.
 ;;;; Workers (search / symbolic analysis) run on a COPY of the position and
 ;;;; carry the positionId they were started for. Results are applied only if
 ;;;; that id is still current, so a late worker can never corrupt the game.
@@ -19,15 +25,23 @@
 (defun protocol-error (code control &rest args)
   (error 'protocol-error :code code :message (apply #'format nil control args)))
 
-(defvar *state-lock* (sb-thread:make-mutex :name "state"))
-(defvar *send-lock* (sb-thread:make-mutex :name "send"))
-(defvar *clients* '())
-(defvar *seq* 0)
 (defvar *log-stream* nil)
+(defvar *log-lock* (sb-thread:make-mutex :name "log"))
 (defvar *prolog-version-string* nil)
 
+;; The transposition table is shared and unlocked, so exactly one search may
+;; run at a time across ALL sessions. Searches from other sessions queue here.
+(defvar *search-lock* (sb-thread:make-mutex :name "search"))
+
+;; Per-session ceilings, so one visitor cannot monopolise a shared server.
+(defvar *max-depth* 30)
+(defvar *max-move-time-ms* 120000)
+
+(defvar *game* nil
+  "The session this thread is serving. Bound per thread, never set globally.")
+
 (defmacro with-state (&body body)
-  `(sb-thread:with-recursive-lock (*state-lock*) ,@body))
+  `(sb-thread:with-recursive-lock ((game-lock *game*)) ,@body))
 
 (defstruct client
   stream socket
@@ -52,37 +66,42 @@
   (search-id 0)
   (stop-flag nil)                       ; (list nil); car set to T to cancel a worker
   (worker nil)
-  (thinking nil))
-
-(defvar *game* (make-game))
+  (thinking nil)
+  (worker-kind nil)                     ; :play | :analysis | :symbolic
+  ;; session plumbing
+  (client nil)
+  (lock (sb-thread:make-mutex :name "game"))
+  (send-lock (sb-thread:make-mutex :name "send"))
+  (seq 0)
+  (last-activity (now-ms)))
 
 ;;; ---------------------------------------------------------------- sending
 
 (defun log-event (direction text)
   (when *log-stream*
-    (format *log-stream* "{\"dir\":\"~A\",\"t\":~D,\"msg\":~A}~%" direction (now-ms) text)
-    (finish-output *log-stream*)))
+    (sb-thread:with-mutex (*log-lock*)
+      (format *log-stream* "{\"dir\":\"~A\",\"t\":~D,\"msg\":~A}~%" direction (now-ms) text)
+      (finish-output *log-stream*))))
 
 (defun send-text (client text)
-  (handler-case
-      (sb-thread:with-mutex ((client-write-lock client))
-        (ws-write-text (client-stream client) text))
-    (error ()
-      (setf *clients* (remove client *clients*)))))
+  "Write one text frame. A dead peer is not an error here: its reader thread
+notices the closed socket and ends the session."
+  (ignore-errors
+   (sb-thread:with-mutex ((client-write-lock client))
+     (ws-write-text (client-stream client) text))))
 
 (defun broadcast (type &rest fields)
-  "Send one event to every client. Assigns the next sequence number."
-  (sb-thread:with-mutex (*send-lock*)
-    (let ((text (json-encode (apply #'obj "type" type "seq" (incf *seq*) fields))))
-      (log-event "out" text)
-      (dolist (client *clients*)
-        (send-text client text)))))
+  "Send one event to this session's client. Assigns the next sequence number."
+  (let ((g *game*))
+    (sb-thread:with-mutex ((game-send-lock g))
+      (let ((text (json-encode (apply #'obj "type" type "seq" (incf (game-seq g)) fields))))
+        (log-event "out" text)
+        (when (game-client g)
+          (send-text (game-client g) text))))))
 
 (defun send-direct (client type &rest fields)
-  (sb-thread:with-mutex (*send-lock*)
-    (let ((text (json-encode (apply #'obj "type" type "seq" (incf *seq*) fields))))
-      (log-event "out" text)
-      (send-text client text))))
+  (declare (ignore client))
+  (apply #'broadcast type fields))
 
 ;;; ----------------------------------------------------------------- clocks
 
@@ -262,8 +281,11 @@
 ;;;   overruled   - a Prolog warning the search decided to ignore
 ;;;   heuristic   - positional advice the search cannot verify at this depth
 
-(defun explanation-item (source status text &optional (targets '()))
-  (obj "source" source "status" status "text" text "squares" targets))
+(defun explanation-item (source status text &optional (targets '()) (motif :null))
+  (obj "source" source "status" status "text" text "squares" targets
+       ;; Which Prolog motif this sentence is about, so the UI can tie a
+       ;; verdict to the right fact instead of guessing from squares.
+       "motif" motif))
 
 (defun pv-captures-on-p (p pv targets)
   "Does the side to move capture on one of TARGETS later in PV (not move 1)?"
@@ -332,25 +354,25 @@
                 (cond ((minusp score)
                        (add "prolog" "overruled"
                             (format nil "Prolog warned: ~A The search played it anyway." text)
-                            targets))
+                            targets kind))
                       ((string= kind "gives_check")
-                       (add "prolog" "confirmed" text targets))
+                       (add "prolog" "confirmed" text targets kind))
                       ((member kind '("captures_hanging" "wins_exchange") :test #'string=)
                        (if (>= swing 100)
                            (add "prolog" "confirmed"
-                                (format nil "~A The search line keeps the material." text) targets)
+                                (format nil "~A The search line keeps the material." text) targets kind)
                            (add "prolog" "unconfirmed"
                                 (format nil "~A But the search line does not end material ahead." text)
-                                targets)))
+                                targets kind)))
                       ((member kind '("creates_fork" "creates_pin" "creates_skewer")
                                :test #'string=)
                        (if (pv-captures-on-p p pv targets)
                            (add "prolog" "confirmed"
-                                (format nil "~A The expected line cashes this in." text) targets)
+                                (format nil "~A The expected line cashes this in." text) targets kind)
                            (add "prolog" "unconfirmed"
                                 (format nil "~A The expected line does not capture any of those targets, so treat this as a threat, not a win." text)
-                                targets)))
-                      (t (add "prolog" "heuristic" text targets)))))
+                                targets kind)))
+                      (t (add "prolog" "heuristic" text targets kind)))))
             (cond ((and entry (/= 0 (jget entry "score" 0)))
                    (add "prolog" "heuristic"
                         (format nil "Before the search, Prolog's motif ordering ranked ~A number ~D of ~D legal moves (hint ~@D)."
@@ -376,6 +398,22 @@
           "items" (nreverse items))))
 
 ;;; ---------------------------------------------------------------- workers
+
+(defun finish-worker (g)
+  "stop_search: make a running search stop NOW and use the best result it has.
+Unlike CANCEL-WORKER the result is kept: an analysis search reports what it
+found, and a search for the engine's own move plays its best move so far, so
+the game never stalls waiting for a move that was stopped. Safe to call at
+any time; with no search running it does nothing."
+  (let ((flag (game-stop-flag g)))
+    (when (and flag
+               (null (car flag))
+               (member (game-worker-kind g) '(:play :analysis)))
+      (setf (car flag) :finish))))
+
+;; The stop flag's car is NIL (keep going), T (cancelled: discard everything)
+;; or :FINISH (stop searching, keep the result).
+(defun cancelled-p (flag) (eq (car flag) t))
 
 (defun cancel-worker (g)
   (when (game-stop-flag g)
@@ -423,7 +461,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
 
 (defun run-search (g p pid sid flag purpose depth time-ms)
   (let ((analysis (symbolic-analysis p)))
-    (when (car flag) (return-from run-search nil))
+    (when (cancelled-p flag) (return-from run-search nil))
     (apply #'broadcast "symbolic_analysis" (symbolic-fields pid analysis))
     (broadcast "search_started"
                "positionId" pid "searchId" sid
@@ -431,23 +469,28 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                "maxDepth" depth "timeLimitMs" time-ms
                "symbolicHints" (jbool analysis))
     (let ((result
-            (search-position p :max-depth depth :time-ms time-ms
-                               :stop-fn (lambda () (car flag))
-                               :hints (symbolic-hints p analysis)
-                               :on-iteration
-                               (lambda (r)
-                                 (unless (car flag)
-                                   (apply #'broadcast "search_update"
-                                          "positionId" pid "searchId" sid
-                                          (search-info-fields p r)))))))
+            ;; Searches from all sessions take turns; the time limit starts
+            ;; when this one actually begins.
+            (sb-thread:with-mutex (*search-lock*)
+              (when (cancelled-p flag) (return-from run-search nil))
+              (search-position p :max-depth depth :time-ms time-ms
+                                 :stop-fn (lambda () (car flag))
+                                 :hints (symbolic-hints p analysis)
+                                 :on-iteration
+                                 (lambda (r)
+                                   (unless (cancelled-p flag)
+                                     (apply #'broadcast "search_update"
+                                            "positionId" pid "searchId" sid
+                                            (search-info-fields p r))))))))
       (with-state
         ;; Stale-result guard: the game may have moved on while we searched.
-        (when (or (car flag) (/= pid (game-position-id g))
+        (when (or (cancelled-p flag) (/= pid (game-position-id g))
                   (null (search-result-best-move result)))
           (return-from run-search nil))
         (apply #'broadcast "search_complete"
                "positionId" pid "searchId" sid
                "purpose" (if (eq purpose :play) "play" "analysis")
+               "stopped" (jbool (eq (car flag) :finish))
                "evalBreakdown" (eval-breakdown p)
                (search-info-fields p result))
         (apply #'broadcast "explanation" "positionId" pid "searchId" sid
@@ -460,7 +503,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
 (defun run-symbolic (g p pid flag)
   (let ((analysis (symbolic-analysis p)))
     (with-state
-      (unless (or (car flag) (/= pid (game-position-id g)))
+      (unless (or (cancelled-p flag) (/= pid (game-position-id g)))
         (apply #'broadcast "symbolic_analysis" (symbolic-fields pid analysis))))))
 
 (defun start-worker (g kind)
@@ -474,24 +517,26 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
          (depth (game-depth g))
          (time-ms (search-time-budget g)))
     (setf (game-stop-flag g) flag
+          (game-worker-kind g) kind
           (game-thinking g) (eq kind :play))
     (setf (game-worker g)
           (sb-thread:make-thread
            (lambda ()
-             ;; One worker at a time: the transposition table is not locked.
-             (when previous
-               (ignore-errors (sb-thread:join-thread previous :default nil)))
-             (handler-case
-                 (if (eq kind :symbolic)
-                     (run-symbolic g p pid flag)
-                     (run-search g p pid sid flag kind depth time-ms))
-               (error (e)
-                 (format *error-output* "~&[worker] ~A~%" e)
-                 (with-state
-                   (when (= pid (game-position-id g)) (setf (game-thinking g) nil)))
-                 (broadcast "error" "code" "worker_failed"
-                                    "message" (princ-to-string e)
-                                    "inReplyTo" :null))))
+             (let ((*game* g))          ; new threads do not inherit bindings
+               ;; One worker per session at a time.
+               (when previous
+                 (ignore-errors (sb-thread:join-thread previous :default nil)))
+               (handler-case
+                   (if (eq kind :symbolic)
+                       (run-symbolic g p pid flag)
+                       (run-search g p pid sid flag kind depth time-ms))
+                 (error (e)
+                   (format *error-output* "~&[worker] ~A~%" e)
+                   (with-state
+                     (when (= pid (game-position-id g)) (setf (game-thinking g) nil)))
+                   (broadcast "error" "code" "worker_failed"
+                                      "message" (princ-to-string e)
+                                      "inReplyTo" :null)))))
            :name "symchess-worker"))))
 
 (defun engine-to-move-p (g)
@@ -589,13 +634,15 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
 (defun cmd-set-engine-depth (g msg)
   (let ((depth (jget msg "depth"))
         (time-ms (jget msg "moveTimeMs")))
+    ;; Requests above the server's ceiling are clamped, not refused; the
+    ;; game_state that follows tells the client what it actually got.
     (when (integerp depth)
       (unless (<= 1 depth 30) (protocol-error "bad_request" "depth must be 1..30."))
-      (setf (game-depth g) depth))
+      (setf (game-depth g) (min depth *max-depth*)))
     (when (integerp time-ms)
       (unless (<= 50 time-ms 120000)
         (protocol-error "bad_request" "moveTimeMs must be 50..120000."))
-      (setf (game-move-time-ms g) time-ms))
+      (setf (game-move-time-ms g) (min time-ms *max-move-time-ms*)))
     (broadcast-game-state g)))
 
 (defun cmd-set-time-control (g msg)
@@ -632,7 +679,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
       (error () (protocol-error "bad_request" "~S is not a square." square)))
     ;; Prolog may take a moment; never hold the state lock while waiting on it.
     (sb-thread:make-thread
-     (lambda ()
+     (lambda (&aux (*game* g))
        (let ((reply (prolog-inspect p square)))
          (if reply
              (broadcast "inspection"
@@ -663,6 +710,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
 
 (defun handle-command (client text)
   (log-event "in" text)
+  (setf (game-last-activity *game*) (now-ms))
   (let ((msg nil))
     (handler-case
         (progn
@@ -678,8 +726,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                     ((string= type "make_move") (cmd-make-move g msg))
                     ((string= type "undo_move") (cmd-undo g))
                     ((string= type "request_analysis") (cmd-request-analysis g msg))
-                    ((string= type "stop_search")
-                     (unless (game-thinking g) (cancel-worker g)))
+                    ((string= type "stop_search") (finish-worker g))
                     ((string= type "set_engine_depth") (cmd-set-engine-depth g msg))
                     ((string= type "set_time_control") (cmd-set-time-control g msg))
                     ((string= type "set_mode") (cmd-set-mode g msg))
