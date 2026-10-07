@@ -4,6 +4,10 @@
 ;;;;   sbcl --script engine/tests/credibility.lisp deep       also check the move labels with a deeper search
 ;;;;   sbcl --script engine/tests/credibility.lisp no-prolog  what is left when Prolog cannot be started
 ;;;;
+;;;; Section 5 checks that every sentence can be traced (to a rule in the
+;;;; index, a check, and facts that exist) and counts where Prolog and the
+;;;; search disagree.
+;;;;
 ;;;; Three things are measured and never mixed:
 ;;;;   motif accuracy        does Prolog report the motifs that are really there, and no others?
 ;;;;   move accuracy         does the search, at Club level's limits, play a correct move?
@@ -39,6 +43,24 @@
   (loop for (k v) on plist by #'cddr when (equal k key) return v))
 
 (defun entry-key (entry key) (getf (cdddr entry) key))
+
+(defvar *known-rules* nil "Ids in the rule index, filled before the first set is run.")
+
+(defun untraceable (item analysis)
+  "NIL if ITEM can be followed back, else a word for what is missing: its rule
+must be in the index; unless it is a plain measurement it must have a check
+that is in the index and a basis; and every fact it cites must be a fact of
+the position."
+  (let ((rule (jget item "rule"))
+        (check (jget item "check"))
+        (ids (mapcar (lambda (f) (jget f "id")) (and analysis (jget analysis "facts" '())))))
+    (cond ((not (member rule *known-rules* :test #'equal)) "rule")
+          ((and (not (equal (jget item "status") "measured"))
+                (not (and (member check *known-rules* :test #'equal)
+                          (stringp (jget item "basis")))))
+           "check")
+          ((notevery (lambda (id) (member id ids :test #'equal)) (jget item "facts" '())) "facts")
+          (t nil))))
 
 (defun percent (part whole)
   (if (zerop whole) "   n/a" (format nil "~5,1F%" (* 100.0 (/ part whole)))))
@@ -126,6 +148,10 @@ have a legal capture with a positive exchange value."
       (deep-disagreements '())
       (why-total 0) (why-right 0) (why-misses '())
       (warned-total 0) (warned-bad '())
+      (traced-total 0) (traced-bad '()) (citing 0)
+      (tally (list 0 0 0 0))            ; confirmed unconfirmed overruled unchecked
+      (ranked 0) (same-move 0)
+      (differ-labelled 0) (differ-search-right 0) (differ-prolog-right 0)
       (prolog-ok t)
       (nodes 0) (time 0) (searched 0))
   (flet ((bump (table key index &optional (by 1))
@@ -171,7 +197,29 @@ have a legal capture with a positive exchange value."
                     (push (list id uci (or best (list "not" (first avoid)))) move-misses)))
               ;; --- explanation
               (when analysis
-                (let ((items (field (build-explanation p result analysis :analysis) "items")))
+                (let* ((fields (build-explanation p result analysis :analysis))
+                       (items (field fields "items"))
+                       (agreement (field fields "agreement")))
+                  ;; --- can every sentence be followed back?
+                  (dolist (item items)
+                    (incf traced-total)
+                    (when (jget item "facts" '()) (incf citing))
+                    (let ((missing (untraceable item analysis)))
+                      (when missing (push (list id missing (jget item "text")) traced-bad))))
+                  ;; --- where the two layers stand
+                  (loop for key in '("confirmed" "unconfirmed" "overruled" "unchecked")
+                        for i from 0
+                        do (incf (nth i tally) (jget agreement key 0)))
+                  (let ((top (first (jget analysis "moves"))))
+                    (when (and top (plusp (jget top "score" 0)))
+                      (incf ranked)
+                      (cond ((string= (jget top "uci") uci) (incf same-move))
+                            (best
+                             ;; They differ, and the position has a labelled best move.
+                             (incf differ-labelled)
+                             (when (member uci best :test #'string=) (incf differ-search-right))
+                             (when (member (jget top "uci") best :test #'string=)
+                               (incf differ-prolog-right))))))
                   (dolist (item items)
                     (when (and (equal (jget item "source") "prolog")
                                (equal (jget item "status") "confirmed")
@@ -204,6 +252,11 @@ have a legal capture with a positive exchange value."
                              (if (member verdict wanted :test #'string=)
                                  (incf why-right)
                                  (push (list id uci verdict wanted) why-misses))
+                             (dolist (item (field answer "items"))
+                               (incf traced-total)
+                               (when (jget item "facts" '()) (incf citing))
+                               (let ((missing (untraceable item analysis)))
+                                 (when missing (push (list id missing (jget item "text")) traced-bad))))
                              (dolist (item (field answer "items"))
                                (when (and (equal (jget item "source") "prolog")
                                           (equal (jget item "status") "confirmed")
@@ -280,6 +333,19 @@ have a legal capture with a positive exchange value."
     (dolist (x (reverse warned-bad))
       (format t "     ~A: ~A -- ~A~%" (first x) (second x) (third x)))
 
+    (format t "~%== 5. Tracing claims, and where Prolog and the search differ~%")
+    (format t "   sentences that name a rule in the index, a check and existing facts: ~D of ~D~%"
+            (- traced-total (length traced-bad)) traced-total)
+    (dolist (x (reverse traced-bad))
+      (format t "     ~A: no ~A -- ~A~%" (first x) (second x) (third x)))
+    (format t "   of those, sentences that cite a fact of the position: ~D~%" citing)
+    (format t "   Prolog's sentences about the chosen move: ~D confirmed, ~D unconfirmed, ~D overruled, ~D not checkable~%"
+            (first tally) (second tally) (third tally) (fourth tally))
+    (format t "   Prolog's top-ranked move was the search's move: ~D of ~D positions where Prolog ranked one~%"
+            same-move ranked)
+    (format t "   where they differed and a best move is labelled (~D): the search's move was a labelled one ~D times, Prolog's ~D~%"
+            differ-labelled differ-search-right differ-prolog-right)
+
     (format t "~%== By category~%")
     (format t "   ~24A ~9@A ~4@A ~5@A ~4@A ~6@A~%" "category" "positions" "hit" "extra" "miss" "moves")
     (dolist (category category-order)
@@ -293,7 +359,11 @@ have a legal capture with a positive exchange value."
             (format t "   ~A: the deeper search prefers ~A (reached depth ~D)~%" (first x) (second x) (third x)))
           (format t "   the deeper search agrees with every label~%"))))))
 
+(setf *known-rules*
+      (mapcar (lambda (rule) (jget rule "id")) (field (rule-index-fields) "rules")))
+
 (format t "SymChess explanation benchmark~%")
+(format t "rule index: ~D entries~%" (length *known-rules*))
 (format t "search limits: depth ~D, ~D ms (Club level)~%" *depth* *time-ms*)
 (run-set "Development set (the rules were corrected against these)" *credibility-positions*)
 (run-set "Held-out set (labelled after the rules were frozen)" *held-out-positions*)

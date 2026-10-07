@@ -27,35 +27,42 @@ plans(Ctx, IdFacts, Plans) :-
     ;   Plans = All
     ).
 
+%   An enemy piece is undefended and can be taken.
 plan(_, S, Facts, plan(win_material, Text, [Id], [ring(Sq, plan)])) :-
     opponent(S, O),
     member(Id-hanging(O, T, Sq, _), Facts),
     sq_name(Sq, Name),
     format(atom(Text), 'Win material: the ~w on ~w is undefended.', [T, Name]).
 
+%   An enemy piece's only defender is pinned to its king.
 plan(_, S, Facts, plan(take_undefended, Text, [Id], [ring(GSq, plan)])) :-
     opponent(S, O),
     member(Id-pinned_defender(O, _, _, GT, GSq), Facts),
     sq_name(GSq, Name),
     format(atom(Text), 'Take the ~w on ~w: its only defender is pinned to the king.', [GT, Name]).
 
+%   An enemy piece is attacked and has no safe square.
 plan(_, S, Facts, plan(win_trapped_piece, Text, [Id], [ring(Sq, plan)])) :-
     opponent(S, O),
     member(Id-trapped(O, T, Sq, _, _), Facts),
     sq_name(Sq, Name),
     format(atom(Text), 'Win the ~w on ~w: it is attacked and has no safe square.', [T, Name]).
 
+%   One of the mover's own pieces masks a line piece that would otherwise attack.
 plan(_, S, Facts, plan(discovered_attack, Text, [Id], [ring(MSq, plan), arrow(SSq, TSq, plan)])) :-
     member(Id-discovered_attack(S, MT, MSq, _, SSq, TT, TSq), Facts),
     sq_name(MSq, M), sq_name(TSq, T),
     format(atom(Text), 'Move the ~w from ~w with a threat of its own: that uncovers an attack on the ~w on ~w.',
            [MT, M, TT, T]).
 
+%   The mover has a pawn the enemy king cannot catch.
 plan(_, S, Facts, plan(queen_the_pawn, Text, [Id], [ring(Sq, plan)])) :-
     member(Id-unstoppable_pawn(S, Sq), Facts),
     sq_name(Sq, Name),
     format(atom(Text), 'Push the pawn on ~w: the enemy king cannot catch it.', [Name]).
 
+%   One of the mover's own pieces, not a pawn, is undefended or attacked by
+%   something cheaper.
 plan(_, S, Facts, plan(save_piece, Text, [Id], [ring(Sq, plan)])) :-
     (   member(Id-hanging(S, T, Sq, _), Facts)
     ;   member(Id-threatened(S, T, Sq, _, _), Facts)
@@ -64,6 +71,7 @@ plan(_, S, Facts, plan(save_piece, Text, [Id], [ring(Sq, plan)])) :-
     sq_name(Sq, Name),
     format(atom(Text), 'Deal with the threat to your ~w on ~w: move it or defend it.', [T, Name]).
 
+%   The opponent has a fork or a skewer on the board.
 plan(_, S, Facts, plan(answer_tactic, Text, [Id], [ring(From, plan)])) :-
     opponent(S, O),
     (   member(Id-fork(O, T, From, _), Facts), Name = fork
@@ -72,23 +80,28 @@ plan(_, S, Facts, plan(answer_tactic, Text, [Id], [ring(From, plan)])) :-
     sq_name(From, F),
     format(atom(Text), 'Answer the ~w from the ~w on ~w before anything else.', [Name, T, F]).
 
+%   The mover is pinning an enemy piece.
 plan(_, S, Facts, plan(exploit_pin, Text, [Id], [ring(Sq, plan)])) :-
     member(Id-pin(_, S, _, _, T, Sq, BT, _), Facts),
     sq_name(Sq, Name),
     format(atom(Text), 'Pile up on the pinned ~w on ~w: it cannot move without exposing the ~w.',
            [T, Name, BT]).
 
+%   The enemy king's back rank is weak.
 plan(_, S, Facts, plan(back_rank, Text, [Id], [ring(KSq, plan)])) :-
     opponent(S, O),
     member(Id-weak_back_rank(O, KSq), Facts),
     sq_name(KSq, Name),
     format(atom(Text), 'Look for a check along the back rank: the king on ~w has no escape square.', [Name]).
 
+%   The mover's own king's back rank is weak.
 plan(_, S, Facts, plan(make_luft, Text, [Id], [ring(KSq, plan)])) :-
     member(Id-weak_back_rank(S, KSq), Facts),
     sq_name(KSq, Name),
     format(atom(Text), 'Give your king on ~w an escape square, or keep a rook on the back rank.', [Name]).
 
+%   There is a hole in the enemy camp that the mover does not occupy yet, and
+%   the mover has a knight.
 plan(Ctx, S, Facts, plan(use_outpost, Text, [Id], [arrow(NSq, Sq, plan)])) :-
     opponent(S, O),
     member(Id-weak_square(O, Sq, _), Facts),
@@ -97,6 +110,8 @@ plan(Ctx, S, Facts, plan(use_outpost, Text, [Id], [arrow(NSq, Sq, plan)])) :-
     sq_name(Sq, Name),
     format(atom(Text), 'Route a knight to the outpost on ~w.', [Name]).
 
+%   A file is open and the mover has a rook, none of them on that file.
+%   Suggested for one file only.
 plan(Ctx, S, Facts, plan(use_open_file, Text, [Id], [file(F, plan)])) :-
     once(( member(Id-open_file(F), Facts),
            piece(Ctx, S, rook, _),
@@ -105,22 +120,26 @@ plan(Ctx, S, Facts, plan(use_open_file, Text, [Id], [file(F, plan)])) :-
     file_letter(F, L),
     format(atom(Text), 'Put a rook on the open ~w-file.', [L]).
 
+%   The mover has a pawn break available.
 plan(_, S, Facts, plan(pawn_break, Text, [Id], [arrow(From, To, plan)])) :-
     member(Id-pawn_break(S, From, To, Target), Facts),
     sq_name(From, F), sq_name(To, T), sq_name(Target, G),
     format(atom(Text), 'Break with the pawn from ~w to ~w to challenge the pawn on ~w.', [F, T, G]).
 
+%   The mover has a passed pawn.
 plan(_, S, Facts, plan(push_passed_pawn, Text, [Id], [ring(Sq, plan)])) :-
     member(Id-passed_pawn(S, Sq), Facts),
     sq_name(Sq, Name),
     format(atom(Text), 'Advance the passed pawn on ~w and support it with pieces.', [Name]).
 
+%   The enemy king is missing pawn cover.
 plan(_, S, Facts, plan(attack_king, Text, [Id], [ring(KSq, plan)])) :-
     opponent(S, O),
     member(Id-king_shield(O, KSq, _), Facts),
     sq_name(KSq, Name),
     format(atom(Text), 'Aim pieces at the king on ~w: its pawn cover is damaged.', [Name]).
 
+%   The mover's own king is missing pawn cover.
 plan(_, S, Facts, plan(guard_king, Text, [Id], [ring(KSq, plan)])) :-
     member(Id-king_shield(S, KSq, _), Facts),
     sq_name(KSq, Name),

@@ -164,32 +164,18 @@ export function selectFocus(state: AppState, highlight: Highlight, analysisMode:
 export type Verdict = 'confirmed' | 'unconfirmed' | 'overruled' | 'heuristic' | 'measured';
 
 /**
- * Root facts and the move motifs the search reports on are different things,
- * so a verdict is carried over only where they are provably the same subject:
- * "this piece is undefended" and "the move captures that undefended piece".
- * Matching on squares alone would be guessing (a check and a pin can share a
- * king square), so everything else is reported as not assessed.
- */
-const FACT_FOR_MOTIF: Record<string, string> = { captures_hanging: 'hanging' };
-
-/**
  * What the search said about this fact, in the explanation OF THE POSITION ON
- * SCREEN. Null means the search has not assessed it, and the UI says so.
+ * SCREEN. A sentence is about a fact only if it cites that fact's id, and the
+ * citation comes from Prolog (a motif states which facts it rests on). Nothing
+ * is matched up by kind or by squares here. Null means the search has not
+ * assessed the fact, and the UI says so.
  */
 export function verdictFor(
-  fact: Pick<Fact, 'kind' | 'squares'>,
+  fact: Pick<Fact, 'id'>,
   explanation: MessageOf<'explanation'> | null,
   positionId: number | null,
 ): Verdict | null {
   if (!explanation || explanation.positionId !== positionId) return null;
-  const subject = fact.squares[0];
-  const item = explanation.items.find(
-    (i) =>
-      i.source === 'prolog' &&
-      typeof i.motif === 'string' &&
-      FACT_FOR_MOTIF[i.motif] === fact.kind &&
-      subject !== undefined &&
-      i.squares.includes(subject),
-  );
+  const item = explanation.items.find((i) => i.source === 'prolog' && (i.facts ?? []).includes(fact.id));
   return item ? item.status : null;
 }

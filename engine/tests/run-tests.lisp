@@ -478,6 +478,76 @@
            "4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1")))
 (stop-prolog)
 
+(section "where a claim comes from")
+(let ((plain (explanation-item "search" "measured" "x"))
+      (motif (explanation-item "prolog" "confirmed" "y" :motif "creates_fork" :facts '("f2")
+                               :check "check:capture_on_target" :basis "because")))
+  (check "a sentence with nothing stated has nulls, not missing fields"
+         (list (jget plain "rule") (jget plain "check") (jget plain "basis") (jget plain "facts"))
+         '(:null :null :null ()))
+  (check "a sentence about a motif names that motif's rule"
+         (jget motif "rule") "motif:creates_fork")
+  (check "it carries its check, its basis and the facts it rests on"
+         (list (jget motif "check") (jget motif "basis") (jget motif "facts"))
+         '("check:capture_on_target" "because" ("f2"))))
+
+(let ((ids (mapcar #'first *engine-rules*)))
+  (check "the engine's own rule ids are unique"
+         (= (length ids) (length (remove-duplicates ids :test #'string=))) t)
+  (check "every one has a place in the source and a description"
+         (every (lambda (rule) (and (plusp (length (fourth rule))) (plusp (length (fifth rule)))))
+                *engine-rules*)
+         t))
+
+;; Without Prolog the index still lists the engine's side, and says it is incomplete.
+(let ((*swipl-program* "symchess-no-such-prolog")
+      (*error-output* (make-broadcast-stream))
+      (*rule-index* nil))
+  (stop-prolog)
+  (let* ((fields (rule-index-fields))
+         (rules (getf-string fields "rules")))
+    (check "without Prolog the rule index says so" (getf-string fields "status") "unavailable")
+    (check "and still lists the engine's own measurements and checks"
+           (and (find "check:material_gain" rules :key (lambda (r) (jget r "id")) :test #'string=) t)
+           t)
+    (check "an incomplete index is not kept" *rule-index* nil))
+  ;; Every sentence of a search-only explanation still says where it came from.
+  (let* ((p (pos-from-fen "r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 3 4"))
+         (result (progn (tt-clear) (search-position p :max-depth 4)))
+         (fields (build-explanation p result nil))
+         (items (getf-string fields "items"))
+         (known (mapcar #'first *engine-rules*)))
+    (check "every sentence names a rule the index knows"
+           (every (lambda (item) (member (jget item "rule") known :test #'equal)) items)
+           t)
+    (check "every sentence that is not a measurement has a check and a basis"
+           (every (lambda (item)
+                    (or (string= (jget item "status") "measured")
+                        (and (stringp (jget item "check")) (stringp (jget item "basis")))))
+                  items)
+           t)
+    (check "with no Prolog there is nothing to agree or disagree about"
+           (let ((a (getf-string fields "agreement")))
+             (list (jget a "confirmed") (jget a "overruled") (jget a "sameMove")))
+           '(0 0 :null))))
+(stop-prolog)
+
+(let* ((items (list (explanation-item "prolog" "confirmed" "a")
+                    (explanation-item "prolog" "overruled" "b")
+                    (explanation-item "prolog" "overruled" "c")
+                    (explanation-item "prolog" "heuristic" "d")
+                    (explanation-item "search" "measured" "e")))
+       (differ (agreement-fields items "Nxe5" "Nc3"))
+       (agree (agreement-fields items "Nc3" "Nc3")))
+  (check "agreement is counted from Prolog's sentences only"
+         (list (jget differ "confirmed") (jget differ "unconfirmed")
+               (jget differ "overruled") (jget differ "unchecked"))
+         '(1 0 2 1))
+  (check "it says when Prolog's top move is not the search's"
+         (list (jget differ "prologTop") (jget differ "searchMove") (jget differ "sameMove"))
+         '("Nxe5" "Nc3" :false))
+  (check "and when it is" (jget agree "sameMove") :true))
+
 (section "reading standard notation")
 (let ((fens '("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
               "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"

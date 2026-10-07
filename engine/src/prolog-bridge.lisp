@@ -104,6 +104,13 @@ Returns the decoded JSON reply, or NIL if Prolog is unavailable."
   (let ((reply (prolog-request (lambda (id) (format nil "version(~D)." id)))))
     (and reply (jget reply "version"))))
 
+(defun prolog-rules ()
+  "Prolog's own index of its rules: one object per kind of fact, motif and
+plan, each with the rule's source text and the comment above it. NIL if Prolog
+is unavailable."
+  (let ((reply (prolog-request (lambda (id) (format nil "rules(~D)." id)))))
+    (and reply (jget reply "rules"))))
+
 ;;; ---------------------------------------------------------- serialisation
 
 (defun piece-kind-name (kind)

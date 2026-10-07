@@ -1,6 +1,7 @@
 /*  analysis.pl -- the three queries the Lisp engine may ask.
 
       analyze(+Pos, +Moves, -Reply)   root facts, plans, per-move motifs
+                                      (each motif cites the facts it rests on)
       inspect(+Pos, +SquareAtom, -Reply)
       root_facts(+Ctx, -IdFacts)      (exported for tests)
 
@@ -63,7 +64,7 @@ analyze(Pos, Moves, _{facts:FactDicts, plans:PlanDicts, moves:MoveDicts}) :-
     maplist(fact_dict, IdFacts, FactDicts),
     plans(Root, IdFacts, Plans),
     number_plans(Plans, 1, PlanDicts),
-    maplist(move_dict(Root), Moves, MoveDicts).
+    maplist(move_dict(Root, IdFacts), Moves, MoveDicts).
 
 number_plans([], _, []).
 number_plans([plan(Kind, Text, Because, Viz)|Ps], N,
@@ -73,10 +74,24 @@ number_plans([plan(Kind, Text, Because, Viz)|Ps], N,
     N1 is N + 1,
     number_plans(Ps, N1, Rest).
 
-move_dict(Root, m(Uci, AfterPos), _{uci:Uci, score:Total, motifs:MotifDicts}) :-
+move_dict(Root, IdFacts, m(Uci, AfterPos), _{uci:Uci, score:Total, motifs:MotifDicts}) :-
     build_ctx(AfterPos, After),
     move_motifs(Root, Uci, After, Motifs, Total),
-    maplist(motif_dict, Motifs, MotifDicts).
+    ctx_side(Root, Side),
+    sub_atom(Uci, 0, 2, _, FromAtom),
+    sq_atom(From, FromAtom),
+    maplist(motif_entry(Side, From, IdFacts), Motifs, MotifDicts).
+
+%   A motif, with the ids of the facts of this position that it rests on.
+motif_entry(Side, From, IdFacts, Motif, Dict) :-
+    motif_dict(Motif, Dict0),
+    findall(Id,
+            ( motif_rests_on(Side, From, Motif, Fact),
+              member(Id-Fact, IdFacts)
+            ),
+            Ids0),
+    list_to_set(Ids0, Ids),
+    Dict = Dict0.put(facts, Ids).
 
 % ----------------------------------------------------------------- inspect
 

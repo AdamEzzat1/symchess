@@ -118,6 +118,33 @@ calls some sound moves inaccurate and misjudges sacrifices that pay off later
 (it marks Morphy's 10.Nxb5 in the sample game). And a small difference means
 nothing; only the larger bands are worth attention.
 
+## Follow a claim back
+
+In Analysis, the **Trace** tab is a debugger for the reasoning. Pick a fact, a
+plan or any sentence of an explanation and it lays out, in order:
+
+1. the position Prolog was shown;
+2. the rule that fired, quoted from its Prolog source file with the comment
+   above it;
+3. the fact and the squares that satisfied the rule;
+4. the plans that cite the fact;
+5. the candidate moves whose motifs Prolog says rest on it;
+6. what a search said about any of those, the number behind the status, and
+   the check that turned that number into "confirmed" or "overruled".
+
+Every link is one the engine or Prolog sent. A step with nothing behind it
+says so ("no plan cites this fact", "the search has not assessed it") and is
+not filled in by guessing.
+
+Below the chain, **Where Prolog and the search differ** lists every sentence of
+Prolog's that the search overruled or left unconfirmed, with counts, and says
+whether Prolog's top-ranked move was the move the search chose. **All rules**
+lists the whole index: 53 Prolog rules and 18 measurements and checks on the
+Lisp side.
+
+`&trace=pin` on a position link opens the first fact of that kind in the Trace
+tab.
+
 ## Use it from a chess program (UCI)
 
 ```bash

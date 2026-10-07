@@ -43,6 +43,7 @@
 :- use_module(library(lists)).
 :- use_module(board).
 
+%   A king is attacked by at least one enemy piece.
 check(Ctx, check(Checker, KingSq, Checkers)) :-
     piece(Ctx, Owner, king, KingSq),
     opponent(Owner, Checker),
@@ -136,6 +137,7 @@ is_hanging(Ctx, C, T, Sq) :-
     \+ attacked_by(Ctx, C, Sq),
     once(can_capture(Ctx, O, _, _, Sq)).
 
+%   A piece that nothing defends and that an enemy piece is able to take.
 hanging(Ctx, hanging(C, T, Sq, Attackers)) :-
     piece(Ctx, C, T, Sq),
     is_hanging(Ctx, C, T, Sq),
@@ -153,6 +155,7 @@ threatened_by(Ctx, C, T, Sq, AT, ASq) :-
     value(AT, VA),
     VA < V.
 
+%   A defended piece attacked by something cheaper than itself.
 threatened(Ctx, threatened(C, T, Sq, AT, ASq)) :-
     piece(Ctx, C, T, Sq),
     attacked_by(Ctx, C, Sq),             % defended (otherwise it is "hanging")

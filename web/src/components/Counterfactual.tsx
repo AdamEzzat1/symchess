@@ -19,13 +19,15 @@ interface Props {
   send: (command: ClientCommand) => void;
   onReplay: (searchId: number) => void;
   replayPending: boolean;
+  /** Follow one of the answer's sentences back to its rule. */
+  onTrace: (searchId: number, index: number) => void;
 }
 
 /**
  * "Why not this move?" The list of moves is the engine's legal moves; the
  * answer is the engine's comparison of two searches. Nothing is worked out here.
  */
-export function Counterfactual({ game, result, disabled, send, onReplay, replayPending }: Props) {
+export function Counterfactual({ game, result, disabled, send, onReplay, replayPending, onTrace }: Props) {
   const [uci, setUci] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
 
@@ -116,6 +118,9 @@ export function Counterfactual({ game, result, disabled, send, onReplay, replayP
                 </span>
                 {item.text}
                 {item.basis && <span className="basis">{item.basis}</span>}
+                <button type="button" className="btn btn-small btn-trace" onClick={() => onTrace(result.searchId, i)}>
+                  Trace
+                </button>
               </li>
             ))}
           </ul>

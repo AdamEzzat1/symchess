@@ -378,30 +378,36 @@ describe('verdictFor: only repeats what the search said about that very fact', (
     move: { uci: 'e2e5', san: 'Rxe5', from: 'e2', to: 'e5', promotion: null, capture: true },
     summary: '',
     items: [
-      { source: 'search', status: 'measured', text: 'depth 5', squares: [], motif: null },
-      { source: 'prolog', status: 'confirmed', text: 'Gives check.', squares: ['e8'], motif: 'gives_check' },
-      { source: 'prolog', status: 'confirmed', text: 'Captures an undefended knight.', squares: ['e5'], motif: 'captures_hanging' },
+      { source: 'search', status: 'measured', text: 'depth 5', squares: [], motif: null, facts: [] },
+      { source: 'prolog', status: 'confirmed', text: 'Gives check.', squares: ['e8'], motif: 'gives_check', facts: [] },
+      // Prolog said this motif rests on fact f2; nothing here works that out.
+      { source: 'prolog', status: 'confirmed', text: 'Captures an undefended knight.', squares: ['e5'], motif: 'captures_hanging', facts: ['f2'] },
     ],
   });
-  const hanging = { kind: 'hanging', squares: ['e5', 'e2'] };
-  const pin = { kind: 'pin', squares: ['e2', 'e5', 'e8'] };
 
-  it('carries the verdict for the capture of an undefended piece to that piece', () => {
-    expect(verdictFor(hanging, explanation(7), 7)).toBe('confirmed');
+  it('carries the verdict to the fact the sentence cites', () => {
+    expect(verdictFor({ id: 'f2' }, explanation(7), 7)).toBe('confirmed');
   });
 
-  it('does not borrow a verdict from an unrelated sentence that shares a square', () => {
-    // the pin names e8 and e5 too, but neither sentence is about the pin
-    expect(verdictFor(pin, explanation(7), 7)).toBeNull();
+  it('gives no verdict to a fact no sentence cites, whatever squares it shares', () => {
+    expect(verdictFor({ id: 'f1' }, explanation(7), 7)).toBeNull();
   });
 
-  it('requires the same piece, not just the same kind of fact', () => {
-    expect(verdictFor({ kind: 'hanging', squares: ['a1'] }, explanation(7), 7)).toBeNull();
+  it('does not take a sentence from the search as a verdict on a fact', () => {
+    const withSearchCitation = explanation(7);
+    withSearchCitation.items[0] = { ...withSearchCitation.items[0]!, facts: ['f9'] };
+    expect(verdictFor({ id: 'f9' }, withSearchCitation, 7)).toBeNull();
   });
 
   it('ignores an explanation of a different position', () => {
-    expect(verdictFor(hanging, explanation(6), 7)).toBeNull();
-    expect(verdictFor(hanging, null, 7)).toBeNull();
+    expect(verdictFor({ id: 'f2' }, explanation(6), 7)).toBeNull();
+    expect(verdictFor({ id: 'f2' }, null, 7)).toBeNull();
+  });
+
+  it('gives no verdict from an older engine that sends no citations', () => {
+    const old = explanation(7);
+    old.items = old.items.map(({ facts: _facts, ...rest }) => rest);
+    expect(verdictFor({ id: 'f2' }, old, 7)).toBeNull();
   });
 });
 

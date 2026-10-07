@@ -129,6 +129,8 @@ export interface Motif {
   score: number;
   targets: Square[];
   text: string;
+  /** Ids of the facts of this position the motif rests on, as Prolog states them. */
+  facts?: string[];
 }
 
 export interface MoveHint {
@@ -145,8 +147,44 @@ export interface ExplanationItem {
   squares: Square[];
   /** The Prolog move motif this sentence reports on, if any. */
   motif?: string | null;
-  /** How the status was decided, where there is a rule to state. */
+  /** What produced the claim: the id of an entry in the rule index. */
+  rule?: string | null;
+  /** What decided the status: the id of another entry in the rule index. */
+  check?: string | null;
+  /** That check as it applied here, with its numbers. */
   basis?: string | null;
+  /** Ids of the facts of the position this sentence rests on. */
+  facts?: string[];
+}
+
+/**
+ * One entry of the rule index. Prolog's entries quote the rule from its own
+ * source file; the engine's entries describe a measurement or a check.
+ */
+export interface Rule {
+  /** "fact:pin", "motif:creates_fork", "plan:exploit_pin", "check:material_gain"... */
+  id: string;
+  layer: 'prolog' | 'search' | 'eval';
+  group: 'fact' | 'motif' | 'plan' | 'measurement' | 'check';
+  name: string;
+  /** File and predicate or function. */
+  where: string;
+  summary: string;
+  /** The rule as written, for Prolog's rules. */
+  source: string | null;
+}
+
+/** Where Prolog and the search stand on one search, counted by the engine. */
+export interface Agreement {
+  confirmed: number;
+  unconfirmed: number;
+  overruled: number;
+  /** Advice the search cannot test at its depth. */
+  unchecked: number;
+  /** Prolog's highest-ranked move, if it ranked any. */
+  prologTop: string | null;
+  searchMove: string | null;
+  sameMove: boolean | null;
 }
 
 /**
@@ -257,6 +295,15 @@ export type ServerMessage =
       move: LegalMove;
       summary: string;
       items: ExplanationItem[];
+      agreement?: Agreement;
+    }
+  | {
+      /** The rules behind every claim. Sent once per connection; not about a position. */
+      type: 'rules';
+      seq: number;
+      /** "unavailable": Prolog could not be asked, so only the engine's entries are listed. */
+      status: 'ok' | 'unavailable';
+      rules: Rule[];
     }
   | {
       type: 'inspection';
@@ -301,6 +348,7 @@ export type ServerMessage =
       bestFactsRemoved: Fact[];
       summary: string;
       items: ExplanationItem[];
+      agreement?: Agreement;
       viz: Viz[];
     }
   | {
@@ -360,6 +408,11 @@ const nullable =
   (c: Check): Check =>
   (v) =>
     v === null || c(v);
+/** A field older engines do not send. If it is there, it must be well formed. */
+const optional =
+  (c: Check): Check =>
+  (v) =>
+    v === undefined || c(v);
 const shape =
   (fields: Record<string, Check>): Check =>
   (v) =>
@@ -427,6 +480,30 @@ const explanationItem = shape({
   status: oneOf('measured', 'confirmed', 'unconfirmed', 'overruled', 'heuristic'),
   text: str,
   squares: arr(square),
+  rule: optional(nullable(str)),
+  check: optional(nullable(str)),
+  basis: optional(nullable(str)),
+  facts: optional(arr(str)),
+});
+const agreement = optional(
+  shape({
+    confirmed: num,
+    unconfirmed: num,
+    overruled: num,
+    unchecked: num,
+    prologTop: nullable(str),
+    searchMove: nullable(str),
+    sameMove: nullable(bool),
+  }),
+);
+const rule = shape({
+  id: str,
+  layer: oneOf('prolog', 'search', 'eval'),
+  group: oneOf('fact', 'motif', 'plan', 'measurement', 'check'),
+  name: str,
+  where: str,
+  summary: str,
+  source: nullable(str),
 });
 const stepChange = shape({
   before: nullable(score),
@@ -494,7 +571,7 @@ const validators: Record<ServerMessageType, Check> = {
       shape({
         uci: str,
         score: num,
-        motifs: arr(shape({ kind: str, score: num, targets: arr(square), text: str })),
+        motifs: arr(shape({ kind: str, score: num, targets: arr(square), text: str, facts: optional(arr(str)) })),
       }),
     ),
     elapsedMs: num,
@@ -505,7 +582,9 @@ const validators: Record<ServerMessageType, Check> = {
     move: legalMove,
     summary: str,
     items: arr(explanationItem),
+    agreement,
   }),
+  rules: shape({ status: oneOf('ok', 'unavailable'), rules: arr(rule) }),
   inspection: shape({
     positionId: num,
     square,
@@ -540,6 +619,7 @@ const validators: Record<ServerMessageType, Check> = {
     bestFactsRemoved: arr(fact),
     summary: str,
     items: arr(explanationItem),
+    agreement,
     viz: arr(viz),
   }),
   game_loaded: shape({

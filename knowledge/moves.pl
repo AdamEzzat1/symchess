@@ -12,7 +12,7 @@
     the search reports.
 */
 
-:- module(moves, [ move_motifs/5 ]).
+:- module(moves, [ move_motifs/5, motif_rests_on/4 ]).
 
 :- use_module(library(lists)).
 :- use_module(library(pairs)).
@@ -38,11 +38,13 @@ captured_value(Root, To, C, V) :-
     ;   V = 0
     ).
 
+%   After the move the enemy king is attacked.
 motif(_, After, C, _, _, motif(gives_check, 300, [KSq], check)) :-
     opponent(C, O),
     piece(After, O, king, KSq),
     attacked_by(After, C, KSq).
 
+%   The move takes a piece that was undefended before the move.
 motif(Root, _, C, _, To, motif(captures_hanging, Score, [To], captured(T))) :-
     opponent(C, O),
     at(Root, To, O, T),
@@ -50,6 +52,7 @@ motif(Root, _, C, _, To, motif(captures_hanging, Score, [To], captured(T))) :-
     value(T, V),
     Score is 150 * V.
 
+%   The move takes a defended piece worth more than the piece that takes it.
 motif(Root, _, C, From, To, motif(wins_exchange, Score, [To], exchange(MT, T))) :-
     opponent(C, O),
     at(Root, To, O, T),
@@ -59,6 +62,8 @@ motif(Root, _, C, From, To, motif(wins_exchange, Score, [To], exchange(MT, T))) 
     VT > VM,
     Score is 100 * (VT - VM).
 
+%   Where it lands, the moved piece forks: the same rule that reports a fork
+%   in a position, applied to the position after the move.
 motif(_, After, C, _, To, motif(creates_fork, 400, Squares, fork(T, To, Targets))) :-
     at(After, To, C, T),
     fork(After, fork(C, T, To, Targets)),
@@ -74,6 +79,7 @@ motif(Root, After, C, _, To, motif(creates_pin, Score, [Sq], pin(Kind, T, Sq, BT
     ;   Score = 180
     ).
 
+%   The moved piece skewers where it lands. As with pins, only a new skewer counts.
 motif(Root, After, C, _, To, motif(creates_skewer, 250, [FSq, BSq], skewer(FT, FSq, BT, BSq))) :-
     once(skewer(After, skewer(C, _, To, FT, FSq, BT, BSq))),
     \+ skewer(Root, skewer(C, _, _, FT, FSq, BT, BSq)).
@@ -97,6 +103,8 @@ motif(Root, After, C, _, To, motif(leaves_hanging, Score, [Sq], leaves(T, Sq))) 
     value(T, V),
     Score is -100 * V.
 
+%   The moved piece was undefended or attacked by something cheaper, and where
+%   it lands it is neither.
 motif(Root, After, C, From, To, motif(rescues, Score, [From], rescues(T, From))) :-
     at(Root, From, C, T),
     T \== king,
@@ -107,12 +115,14 @@ motif(Root, After, C, From, To, motif(rescues, Score, [From], rescues(T, From)))
     value(T, V),
     Score is 80 * V.
 
+%   A knight or bishop lands on a hole in the enemy camp.
 motif(_, After, C, _, To, motif(occupies_outpost, 120, [To], outpost(T, To))) :-
     at(After, To, C, T),
     memberchk(T, [knight, bishop]),
     opponent(C, O),
     once(is_weak_square(After, O, To, _)).
 
+%   A rook changes file and lands on an open or semi-open one.
 motif(_, After, C, F0/_, F/R, motif(rook_to_open_file, Score, [F/R], file(F, Kind))) :-
     F \== F0,
     at(After, F/R, C, rook),
@@ -122,6 +132,8 @@ motif(_, After, C, F0/_, F/R, motif(rook_to_open_file, Score, [F/R], file(F, Kin
     ->  Score = 50, Kind = semi_open
     ).
 
+%   A pawn moves and is a passed pawn where it lands. Worth more the further
+%   up the board it gets.
 motif(Root, After, C, From, To, motif(pushes_passed_pawn, Score, [To], passed(To))) :-
     at(Root, From, C, pawn),
     at(After, To, C, pawn),
@@ -129,3 +141,22 @@ motif(Root, After, C, From, To, motif(pushes_passed_pawn, Score, [To], passed(To
     To = _/R,
     rel_rank(C, R, RR),
     Score is 30 + 15 * RR.
+
+% ------------------------------------------------- which facts a motif uses
+
+%!  motif_rests_on(+Color, +From, +Motif, ?Fact) is nondet.
+%   Fact is a fact about the position BEFORE the move that Motif is about:
+%   "this move captures an undefended piece" rests on "that piece is
+%   undefended". Stated here, as a relation, so that nothing downstream has to
+%   guess the connection from shared squares. Motifs that describe something
+%   the move creates (a new fork, a new pin, a check) rest on no fact of the
+%   position before it, and have no clause.
+motif_rests_on(C, _, motif(captures_hanging, _, [To], _), hanging(O, _, To, _)) :-
+    opponent(C, O).
+motif_rests_on(C, From, motif(rescues, _, _, _), hanging(C, _, From, _)).
+motif_rests_on(C, From, motif(rescues, _, _, _), threatened(C, _, From, _, _)).
+motif_rests_on(C, _, motif(occupies_outpost, _, [To], _), weak_square(O, To, _)) :-
+    opponent(C, O).
+motif_rests_on(_, _, motif(rook_to_open_file, _, _, file(F, open)), open_file(F)).
+motif_rests_on(C, _, motif(rook_to_open_file, _, _, file(F, semi_open)), semi_open_file(C, F)).
+motif_rests_on(C, From, motif(pushes_passed_pawn, _, _, _), passed_pawn(C, From)).

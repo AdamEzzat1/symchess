@@ -360,13 +360,112 @@ notices the closed socket and ends the session."
 ;;;   overruled   - a Prolog warning the search decided to ignore
 ;;;   heuristic   - positional advice the search cannot verify at this depth
 
-(defun explanation-item (source status text &optional (targets '()) (motif :null) (basis :null))
-  (obj "source" source "status" status "text" text "squares" targets
-       ;; Which Prolog motif this sentence is about, so the UI can tie a
-       ;; verdict to the right fact instead of guessing from squares.
-       "motif" motif
-       ;; How the status was decided, in a sentence, where there is a rule to state.
-       "basis" basis))
+;;; Every sentence also says where it came from, so that it can be followed
+;;; back:
+;;;   rule  - what produced the claim: an entry of the rule index (a Prolog
+;;;           rule, or one of the engine's own measurements below)
+;;;   check - what decided the status: another entry of the index
+;;;   basis - that check as it applied here, with its numbers
+;;;   facts - ids of the facts of this position the claim rests on, as
+;;;           stated by Prolog (never matched up by squares)
+
+(defun explanation-item (source status text &key (squares '()) motif rule check basis (facts '()))
+  (obj "source" source "status" status "text" text "squares" squares
+       ;; Which Prolog motif this sentence is about.
+       "motif" (or motif :null)
+       "rule" (or rule (and motif (format nil "motif:~A" motif)) :null)
+       "check" (or check :null)
+       "basis" (or basis :null)
+       "facts" facts))
+
+(defun motif-facts (motif)
+  "The ids of the facts Prolog says MOTIF rests on."
+  (jget motif "facts" '()))
+
+;;; The engine's own entries in the rule index. Prolog describes its rules
+;;; from its source (knowledge/rules.pl); these describe the measurements and
+;;; checks made on this side, next to the code that makes them.
+(defparameter *engine-rules*
+  '(("search:score" "search" "measurement" "engine/src/search.lisp, search-position"
+     "The value the alpha-beta search returned for the move, at the depth stated. A number from a search, not a judgement.")
+    ("search:line" "search" "measurement" "engine/src/search.lisp, search-position"
+     "The principal variation: the sequence of moves the search found best for both sides.")
+    ("search:material" "search" "measurement" "engine/src/game.lisp, pv-material-swing"
+     "The material count at the end of the search's line minus the count before it, for the side that moves first.")
+    ("search:level" "search" "measurement" "engine/src/game.lisp, choose-level-move"
+     "Below full strength the engine may pass over its best move. The note says which move it found best and which it played.")
+    ("eval:terms" "eval" "measurement" "engine/src/eval.lisp, eval-breakdown"
+     "The static evaluator's six terms for the position as it stands, before any move.")
+    ("prolog:ranking" "prolog" "measurement" "knowledge/moves.pl, move_motifs/5"
+     "Prolog's score for a move is the sum of the scores of its motifs. It is made without searching and the search does not use it.")
+    ("prolog:line_end" "prolog" "measurement" "engine/src/game.lisp, expected-facts"
+     "Prolog is asked about the position at the end of the search's line and its tactical facts are reported. That position may never arise.")
+    ("prolog:unavailable" "prolog" "measurement" "engine/src/prolog-bridge.lisp, prolog-request"
+     "Prolog did not answer in time or is not installed, so nothing symbolic is reported.")
+    ("engine:verdict_bands" "search" "check" "engine/src/game.lisp, loss-verdict"
+     "A move is rated by how much worse it scores than the search's choice at the same depth: up to 0.15 pawns about as good, up to 0.6 an inaccuracy, up to 2.0 a mistake, more a blunder. A move that gives up more than 0.6 but leaves its mover no worse is a missed chance.")
+    ("engine:fact_delta" "prolog" "check" "engine/src/game.lisp, fact-delta"
+     "Prolog is asked about the position before the move and the position after it. A fact is new if its key appears only afterwards, gone if only before.")
+    ("engine:plan_support" "prolog" "check" "engine/src/game.lisp, build-counterfactual"
+     "A plan keeps its support after a move if every fact it cites is still reported in the position after that move.")
+    ("check:is_check" "search" "check" "engine/src/game.lisp, build-explanation"
+     "A move Prolog says gives check is confirmed without a search: giving check is a property of the position after the move.")
+    ("check:material_gain" "search" "check" "engine/src/game.lisp, pv-material-swing"
+     "A motif that claims to win material is confirmed if the search's line ends at least one pawn of material ahead, and unconfirmed if it does not.")
+    ("check:capture_on_target" "search" "check" "engine/src/game.lisp, pv-captures-on-p"
+     "A fork, pin or skewer is confirmed if the mover later captures on one of its target squares in the search's line, and unconfirmed if not.")
+    ("check:warning" "search" "check" "engine/src/game.lisp, build-counterfactual"
+     "A Prolog warning about a move is confirmed if the search's line for that move ends at least one pawn of material down; unconfirmed if the search rates the move more than 0.6 pawns worse without that loss showing; overruled otherwise.")
+    ("check:warning_played" "search" "check" "engine/src/game.lisp, build-explanation"
+     "A Prolog warning about the move the search chose is overruled: the search looked at the move and preferred it to every other.")
+    ("check:top_move" "search" "check" "engine/src/game.lisp, build-explanation"
+     "Prolog's highest-ranked move is compared with the move the search chose. If they differ, Prolog's suggestion is overruled.")
+    ("check:none" "search" "check" "engine/src/game.lisp, build-explanation"
+     "Positional advice. The search does not look far enough to confirm or refute it, so it is reported as a heuristic."))
+  "id, layer, group, where, summary.")
+
+(defvar *rule-index* nil
+  "The full rule index once Prolog has supplied its part. Filled on first use.")
+(defvar *rule-index-lock* (sb-thread:make-mutex :name "rule-index"))
+
+(defun engine-rule-objects ()
+  (loop for (id layer group where summary) in *engine-rules*
+        collect (obj "id" id "layer" layer "group" group
+                     "name" (subseq id (1+ (position #\: id)))
+                     "where" where "summary" summary "source" :null)))
+
+(defun rule-index-fields ()
+  "The fields of a `rules` message. Prolog's rules come from Prolog; if it
+cannot be reached the engine's own entries are still sent, and the status says
+the index is incomplete. The complete index is kept; an incomplete one is not,
+so Prolog is asked again next time."
+  (let ((known (sb-thread:with-mutex (*rule-index-lock*) *rule-index*)))
+    (if known
+        (list "status" "ok" "rules" known)
+        (let ((prolog (prolog-rules)))
+          (cond (prolog
+                 (let ((all (append prolog (engine-rule-objects))))
+                   (sb-thread:with-mutex (*rule-index-lock*) (setf *rule-index* all))
+                   (list "status" "ok" "rules" all)))
+                (t (list "status" "unavailable" "rules" (engine-rule-objects))))))))
+
+(defun agreement-fields (items &optional top-san chosen-san)
+  "Where Prolog and the search stand on one search, counted from ITEMS: every
+Prolog sentence the search confirmed, left unconfirmed, overruled, or could
+not check. TOP-SAN is Prolog's highest-ranked move and CHOSEN-SAN the search's
+move, when both are known."
+  (flet ((tally (status)
+           (count-if (lambda (item)
+                       (and (equal (jget item "source") "prolog")
+                            (equal (jget item "status") status)))
+                     items)))
+    (obj "confirmed" (tally "confirmed")
+         "unconfirmed" (tally "unconfirmed")
+         "overruled" (tally "overruled")
+         "unchecked" (tally "heuristic")
+         "prologTop" (or top-san :null)
+         "searchMove" (or chosen-san :null)
+         "sameMove" (if (and top-san chosen-san) (jbool (string= top-san chosen-san)) :null))))
 
 (defun remember-line (g sid pid p pv)
   "Keep the line behind search SID so it can be replayed on request. A few
@@ -538,40 +637,51 @@ making a move or judging a position itself. One Prolog query per step."
          (mover (string-capitalize (side-name side)))
          (pv (search-result-pv result))
          (swing (pv-material-swing p pv))
+         (top-san nil)                  ; Prolog's highest-ranked move, if it ranked any
          (items '()))
     (flet ((add (&rest args) (push (apply #'explanation-item args) items)))
-      (when note (add "search" "measured" note))
+      (when note (add "search" "measured" note :rule "search:level"))
       (add "search" "measured"
            (format nil "Searched ~D plies deep (~:D positions, ~,1F s). ~A scores ~A (White's view)."
                    (search-result-depth result) (search-result-nodes result)
                    (/ (search-result-time-ms result) 1000.0)
-                   san (score-text (search-result-score result) side)))
+                   san (score-text (search-result-score result) side))
+           :rule "search:score")
       (when (rest pv)
         (add "search" "measured"
-             (format nil "Expected continuation: ~{~A~^ ~}." (pv-san p pv))))
+             (format nil "Expected continuation: ~{~A~^ ~}." (pv-san p pv))
+             :rule "search:line"))
       (cond ((>= swing 100)
              (add "search" "measured"
                   (format nil "Along that line ~A comes out about ~,1F pawns of material ahead."
-                          mover (/ swing 100.0))))
+                          mover (/ swing 100.0))
+                  :rule "search:material"))
             ((<= swing -100)
              (add "search" "measured"
                   (format nil "Along that line ~A gives up about ~,1F pawns of material; the evaluation at the end of the line still favours the move."
-                          mover (/ (- swing) 100.0)))))
+                          mover (/ (- swing) 100.0))
+                  :rule "search:material")))
       (let ((terms (eval-breakdown p)))
         (add "eval" "measured"
              (format nil "Static evaluation before the move, White's view: material ~@D, piece placement ~@D, pawn structure ~@D, bishop pair ~@D, piece activity ~@D, king safety ~@D (centipawns)."
                      (jget terms "material") (jget terms "placement")
                      (jget terms "pawnStructure") (jget terms "bishopPair")
-                     (jget terms "activity") (jget terms "kingSafety"))))
+                     (jget terms "activity") (jget terms "kingSafety"))
+             :rule "eval:terms"))
       ;; Where the line leads: Prolog's reading of the position the search
       ;; expects to reach. Advice about a position that may never arise.
       (dolist (fact expected)
         (add "prolog" "heuristic"
              (format nil "At the end of the expected line: ~A" (jget fact "text"))
-             (jget fact "squares" '())))
+             :squares (jget fact "squares" '())
+             :rule (format nil "fact:~A" (jget fact "kind"))
+             :check "prolog:line_end"
+             :basis "A fact about the position at the end of the search's line, not about the board now."))
       (if (null analysis)
           (add "prolog" "heuristic"
-               "The Prolog knowledge layer was unavailable, so this explanation is search-only.")
+               "The Prolog knowledge layer was unavailable, so this explanation is search-only."
+               :rule "prolog:unavailable" :check "check:none"
+               :basis "Nothing from Prolog to check.")
           (let* ((entries (jget analysis "moves"))
                  (uci (move-uci best))
                  (entry (find uci entries :key (lambda (e) (jget e "uci")) :test #'string=))
@@ -582,36 +692,56 @@ making a move or judging a position itself. One Prolog query per step."
                      (targets (jget motif "targets" '()))
                      (score (jget motif "score" 0))
                      (text (jget motif "text")))
-                (cond ((minusp score)
-                       (add "prolog" "overruled"
-                            (format nil "Prolog warned: ~A The search played it anyway." text)
-                            targets kind))
-                      ((string= kind "gives_check")
-                       (add "prolog" "confirmed" text targets kind))
-                      ((member kind '("captures_hanging" "wins_exchange") :test #'string=)
-                       (if (>= swing 100)
-                           (add "prolog" "confirmed"
-                                (format nil "~A The search line keeps the material." text) targets kind)
-                           (add "prolog" "unconfirmed"
-                                (format nil "~A But the search line does not end material ahead." text)
-                                targets kind)))
-                      ((member kind '("creates_fork" "creates_pin" "creates_skewer")
-                               :test #'string=)
-                       (if (pv-captures-on-p p pv targets)
-                           (add "prolog" "confirmed"
-                                (format nil "~A The expected line cashes this in." text) targets kind)
-                           (add "prolog" "unconfirmed"
-                                (format nil "~A The expected line does not capture any of those targets, so treat this as a threat, not a win." text)
-                                targets kind)))
-                      (t (add "prolog" "heuristic" text targets kind)))))
+                (flet ((say (status sentence check basis)
+                         (add "prolog" status sentence
+                              :squares targets :motif kind :facts (motif-facts motif)
+                              :check check :basis basis)))
+                  (cond ((minusp score)
+                         (say "overruled"
+                              (format nil "Prolog warned: ~A The search played it anyway." text)
+                              "check:warning_played"
+                              (format nil "Overruled because the search compared ~A with every other move and still chose it." san)))
+                        ((string= kind "gives_check")
+                         (say "confirmed" text "check:is_check"
+                              "Confirmed because the move does give check."))
+                        ((member kind '("captures_hanging" "wins_exchange") :test #'string=)
+                         (if (>= swing 100)
+                             (say "confirmed"
+                                  (format nil "~A The search line keeps the material." text)
+                                  "check:material_gain"
+                                  (format nil "Confirmed because the line after ~A ends ~,1F pawns of material ahead." san (/ swing 100.0)))
+                             (say "unconfirmed"
+                                  (format nil "~A But the search line does not end material ahead." text)
+                                  "check:material_gain"
+                                  (format nil "Not confirmed: the line after ~A ends ~:[level on material~;~:*~,1F pawns of material ~:[down~;up~]~], under the one pawn needed."
+                                          san (and (/= swing 0) (/ (abs swing) 100.0)) (plusp swing)))))
+                        ((member kind '("creates_fork" "creates_pin" "creates_skewer")
+                                 :test #'string=)
+                         (if (pv-captures-on-p p pv targets)
+                             (say "confirmed"
+                                  (format nil "~A The expected line cashes this in." text)
+                                  "check:capture_on_target"
+                                  (format nil "Confirmed because ~A later captures on ~{~A~^ or ~} in the search's line." mover targets))
+                             (say "unconfirmed"
+                                  (format nil "~A The expected line does not capture any of those targets, so treat this as a threat, not a win." text)
+                                  "check:capture_on_target"
+                                  (format nil "Not confirmed: ~A does not capture on ~{~A~^ or ~} anywhere in the search's line." mover targets))))
+                        (t (say "heuristic" text "check:none"
+                                "Not checked: the search cannot verify positional advice at this depth."))))))
             (cond ((and entry (/= 0 (jget entry "score" 0)))
                    (add "prolog" "heuristic"
                         (format nil "Prolog's own ranking of the moves, made without searching, put ~A number ~D of ~D (score ~@D). The search did not use that ranking."
-                                san (1+ rank) (length entries) (jget entry "score" 0))))
+                                san (1+ rank) (length entries) (jget entry "score" 0))
+                        :rule "prolog:ranking" :check "check:none"
+                        :basis "A ranking, not a claim the search can test."))
                   (t
                    (add "prolog" "heuristic"
                         (format nil "Prolog found no tactical or positional motif for ~A, so this choice rests on the search alone."
-                                san))))
+                                san)
+                        :rule "prolog:ranking" :check "check:none"
+                        :basis "No motif fired for this move, so there is nothing to test.")))
+            (setf top-san (and top (plusp (jget top "score" 0))
+                               (jget top "san" (jget top "uci"))))
             (when (and top (plusp (jget top "score" 0))
                        (string/= (jget top "uci") uci))
               (add "prolog" "overruled"
@@ -619,14 +749,20 @@ making a move or judging a position itself. One Prolog query per step."
                            (jget top "san" (jget top "uci"))
                            (let ((motif (first (jget top "motifs"))))
                              (and motif (jget motif "kind")))
-                           san))))))
+                           san)
+                   :rule "prolog:ranking" :check "check:top_move"
+                   :basis (format nil "Overruled because the search chose ~A, not ~A."
+                                  san (jget top "san" (jget top "uci"))))))))
+    (setf items (nreverse items))
     (list "move" (move-object p best legal)
           ;; An analysis search recommends a move; only a play search plays it.
           "summary" (format nil (if (eq purpose :play)
                                     "~A plays ~A (~A)."
                                     "Best for ~A: ~A (~A).")
                             mover san (score-text (search-result-score result) side))
-          "items" (nreverse items))))
+          "items" items
+          ;; Where the two layers stand on this search, counted.
+          "agreement" (agreement-fields items top-san (and analysis san)))))
 
 ;;; ---------------------------------------------------------------- workers
 
@@ -969,18 +1105,20 @@ number from one of those two searches or a fact from Prolog, and says which."
           (if same
               (add "search" "measured"
                    (format nil "~A is the move the engine would play itself. It scores ~A (White's view), searched ~D plies deep."
-                           san (score-text alt-score side) (search-result-depth alt)))
+                           san (score-text alt-score side) (search-result-depth alt))
+                   :rule "search:score")
               (add "search" "measured"
                    (format nil "~A scores ~A; the engine's choice ~A scores ~A (White's view, ~D and ~D plies deep).~:[ ~A is about ~,1F pawns worse.~;~]"
                            san (score-text alt-score side) best-san (score-text best-score side)
                            (search-result-depth alt) (search-result-depth best)
                            (or mate (zerop loss)) san (pawns loss))
-                   '() :null
-                   (format nil "Verdict \"~A\": the difference between the two scores, in fixed bands (up to 0.15 about as good, 0.6 an inaccuracy, 2.0 a mistake, more a blunder). A move that gives up more than 0.6 but leaves its mover no worse is called a missed chance."
-                           verdict)))
+                   :rule "search:score" :check "engine:verdict_bands"
+                   :basis (format nil "Verdict \"~A\": the difference between the two scores, in fixed bands (up to 0.15 about as good, 0.6 an inaccuracy, 2.0 a mistake, more a blunder). A move that gives up more than 0.6 but leaves its mover no worse is called a missed chance."
+                                  verdict)))
           (when (rest (search-result-pv alt))
             (add "search" "measured"
-                 (format nil "After ~A the engine expects: ~{~A~^ ~}." san (pv-san p (search-result-pv alt)))))
+                 (format nil "After ~A the engine expects: ~{~A~^ ~}." san (pv-san p (search-result-pv alt)))
+                 :rule "search:line"))
           (unless same
             (when (or (>= (abs alt-swing) 100) (>= (abs (- alt-swing best-swing)) 100))
               (add "search" "measured"
@@ -990,57 +1128,67 @@ number from one of those two searches or a fact from Prolog, and says which."
                                 (format nil "~,1F pawns ~:[down~;up~]" (pawns alt-swing) (plusp alt-swing)))
                            best-san
                            (and (/= best-swing 0)
-                                (format nil "~,1F pawns ~:[down~;up~]" (pawns best-swing) (plusp best-swing))))))
+                                (format nil "~,1F pawns ~:[down~;up~]" (pawns best-swing) (plusp best-swing))))
+                   :rule "search:material")))
           ;; --- what Prolog said about the move, and whether the search bears it out
           (if (null analysis)
               (add "prolog" "heuristic"
-                   "The Prolog knowledge layer was unavailable, so this comparison is search-only.")
+                   "The Prolog knowledge layer was unavailable, so this comparison is search-only."
+                   :rule "prolog:unavailable" :check "check:none"
+                   :basis "Nothing from Prolog to check.")
               (let ((entry (find (move-uci move) (jget analysis "moves")
                                  :key (lambda (e) (jget e "uci")) :test #'string=)))
                 (dolist (motif (and entry (jget entry "motifs")))
                   (let ((kind (jget motif "kind"))
                         (targets (jget motif "targets" '()))
                         (text (jget motif "text")))
-                    (cond
-                      ((minusp (jget motif "score" 0))
-                       (cond ((<= alt-swing -100)
-                              (add "prolog" "confirmed"
-                                   (format nil "Prolog warned: ~A The search agrees: its line loses material." text)
-                                   targets kind
-                                   (format nil "Confirmed because the line after ~A ends ~,1F pawns of material down." san (pawns alt-swing))))
-                             ((and (not same) (> loss 60))
-                              (add "prolog" "unconfirmed"
-                                   (format nil "Prolog warned: ~A The search does rate the move worse, but its line does not show that material being lost." text)
-                                   targets kind
-                                   "Not confirmed: the line's material count is under a pawn down."))
-                             (t
-                              (add "prolog" "overruled"
-                                   (format nil "Prolog warned: ~A The search finds nothing wrong with the move." text)
-                                   targets kind
-                                   "Overruled: the search rates this move within 0.6 pawns of its best and the line loses no material."))))
-                      ((string= kind "gives_check")
-                       (add "prolog" "confirmed" text targets kind "Confirmed because the move does give check."))
-                      ((>= alt-swing 100)
-                       (add "prolog" "confirmed"
-                            (format nil "~A The search's line for it does win material." text) targets kind
-                            (format nil "Confirmed because the line after ~A ends ~,1F pawns of material up." san (pawns alt-swing))))
-                      ((member kind '("captures_hanging" "wins_exchange" "creates_fork"
-                                      "creates_pin" "creates_skewer")
-                               :test #'string=)
-                       (add "prolog" "unconfirmed"
-                            (format nil "~A But the search's line for it does not end material ahead." text)
-                            targets kind
-                            "Not confirmed: the line's material count is under a pawn up."))
-                      (t (add "prolog" "heuristic" text targets kind
-                              "Not checked: the search cannot verify positional advice at this depth.")))))
+                    (flet ((say (status sentence check basis)
+                             (add "prolog" status sentence
+                                  :squares targets :motif kind :facts (motif-facts motif)
+                                  :check check :basis basis)))
+                      (cond
+                        ((minusp (jget motif "score" 0))
+                         (cond ((<= alt-swing -100)
+                                (say "confirmed"
+                                     (format nil "Prolog warned: ~A The search agrees: its line loses material." text)
+                                     "check:warning"
+                                     (format nil "Confirmed because the line after ~A ends ~,1F pawns of material down." san (pawns alt-swing))))
+                               ((and (not same) (> loss 60))
+                                (say "unconfirmed"
+                                     (format nil "Prolog warned: ~A The search does rate the move worse, but its line does not show that material being lost." text)
+                                     "check:warning"
+                                     "Not confirmed: the line's material count is under a pawn down."))
+                               (t
+                                (say "overruled"
+                                     (format nil "Prolog warned: ~A The search finds nothing wrong with the move." text)
+                                     "check:warning"
+                                     "Overruled: the search rates this move within 0.6 pawns of its best and the line loses no material."))))
+                        ((string= kind "gives_check")
+                         (say "confirmed" text "check:is_check" "Confirmed because the move does give check."))
+                        ((>= alt-swing 100)
+                         (say "confirmed"
+                              (format nil "~A The search's line for it does win material." text)
+                              "check:material_gain"
+                              (format nil "Confirmed because the line after ~A ends ~,1F pawns of material up." san (pawns alt-swing))))
+                        ((member kind '("captures_hanging" "wins_exchange" "creates_fork"
+                                        "creates_pin" "creates_skewer")
+                                 :test #'string=)
+                         (say "unconfirmed"
+                              (format nil "~A But the search's line for it does not end material ahead." text)
+                              "check:material_gain"
+                              "Not confirmed: the line's material count is under a pawn up."))
+                        (t (say "heuristic" text "check:none"
+                                "Not checked: the search cannot verify positional advice at this depth."))))))
                 ;; --- what the move changes on the board, by Prolog's facts
                 (flet ((say (facts control &optional (limit 3))
                          (loop for fact in facts
                                repeat limit
                                do (add "prolog" "heuristic"
                                        (format nil control (jget fact "text"))
-                                       (jget fact "squares" '()) :null
-                                       "A fact Prolog reports in one position and not the other."))))
+                                       :squares (jget fact "squares" '())
+                                       :rule (format nil "fact:~A" (jget fact "kind"))
+                                       :check "engine:fact_delta"
+                                       :basis "A fact Prolog reports in one position and not the other."))))
                   (say added (format nil "New after ~A: ~~A" san))
                   (say removed (format nil "No longer true after ~A: ~~A" san))
                   (unless same
@@ -1070,8 +1218,11 @@ number from one of those two searches or a fact from Prolog, and says which."
                                  (add "prolog" "heuristic"
                                       (format nil "The plan \"~A\" loses the facts it rests on after ~A; after ~A it keeps them."
                                               (jget plan "text") san best-san)
-                                      '() :null
-                                      "A plan is kept if every fact it cites is still reported after the move."))))))))
+                                      :rule (format nil "plan:~A" (jget plan "kind"))
+                                      :facts (jget plan "because" '())
+                                      :check "engine:plan_support"
+                                      :basis "A plan is kept if every fact it cites is still reported after the move.")))))))
+          (setf items (nreverse items))
           (list "move" (move-object p move legal)
                 "best" (move-object p choice legal)
                 "isBest" (jbool same)
@@ -1091,7 +1242,8 @@ number from one of those two searches or a fact from Prolog, and says which."
                               (format nil "The search rates ~A ~A~:[: about ~,1F pawns worse than ~A~;~*~*~]~:[~;, though ~A is still not worse~]."
                                       san (verdict-words verdict) (or mate (zerop loss)) (pawns loss) best-san
                                       (string= verdict "missed_chance") mover))
-                "items" (nreverse items)
+                "items" items
+                "agreement" (agreement-fields items)
                 ;; The asked move, the engine's move, and the reply that answers the asked one.
                 "viz" (append
                        (list (obj "type" "arrow" "from" (square-name (move-from move))

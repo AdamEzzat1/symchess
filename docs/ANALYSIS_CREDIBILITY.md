@@ -103,6 +103,19 @@ Added in milestone 7. For every position with a labelled move, the benchmark ask
 
 "Missed chance" was added after the labels were written, and the check was widened to accept it for one position. See `WORKBENCH_PLAN.md`, section 9.
 
+### Tracing, and where Prolog and the search differ
+
+Added in milestone 8. Every sentence of every explanation and comparison in the benchmark is checked for a rule that is in the index, a check with a stated basis (unless it is a plain measurement), and cited facts that exist in that position.
+
+| Check | Development | Held-out |
+| --- | --- | --- |
+| Sentences that can be followed back | 266 of 266 | 80 of 80 |
+| Prolog's top-ranked move was the search's move | 10 of 20 | 2 of 5 |
+| Where they differed and a best move is labelled, the search's move was a labelled one | 6 of 6 | 2 of 3 |
+| The same, Prolog's top move | 1 of 6 | 2 of 3 |
+
+The first row shows the mechanism has no gaps. It says nothing about whether an explanation is right; the earlier sections do that. The others measure Prolog's unsearched ranking against the search. See `WORKBENCH_PLAN.md`, section 10.
+
 ### Without Prolog
 
 With Prolog unavailable the benchmark still runs. It reports that motif and explanation accuracy were not measured, and gives the same move accuracy (20 of 20 and 4 of 5), because the search never depended on Prolog.

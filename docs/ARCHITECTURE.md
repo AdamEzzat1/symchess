@@ -591,6 +591,35 @@ A game review uses the same comparison per move (`review_step.change`): the
 search's own choice in the position before, the game move searched to the same
 depth, the change in each evaluation term, and the fact delta.
 
+**How a claim is followed back.** Three things make a sentence traceable, and
+each is owned by the layer that knows it.
+
+- *Prolog describes its own rules.* `knowledge/rules.pl` reads the source files
+  of the knowledge base and returns, for every kind of fact, move motif and
+  plan, the clause as written and the comment above it. Which clauses count is
+  decided by their heads (`Kind(Ctx, Fact)` for the kinds `root_fact/2` calls,
+  `motif/6`, `plan/4`). There is no second description of a rule that could
+  drift from the rule.
+- *Prolog says which facts a motif uses.* `moves:motif_rests_on/4` relates a
+  motif to the facts of the position before the move ("captures an undefended
+  piece" rests on "that piece is undefended"). Each motif in an analysis carries
+  the ids of those facts. Plans already cited theirs.
+- *Lisp says how each status was decided.* Every explanation sentence carries
+  `rule` (what produced the claim), `check` (what decided the status), `basis`
+  (that check with its numbers) and `facts` (ids cited). The checks and
+  measurements made in Lisp are listed in `*engine-rules*`, beside the code.
+
+The two lists together are the rule index, sent once per connection as `rules`.
+It is not tagged with a position because it describes the engine, not a game;
+the reducer keeps it across moves and drops it with the connection. The
+frontend's part (`web/src/provenance.ts`) is lookup by id and nothing else. It
+replaced a table in TypeScript that had paired motifs with facts by kind and
+square.
+
+Each `explanation` and `counterfactual` also carries `agreement`: the engine's
+count of Prolog's sentences it confirmed, left unconfirmed, overruled or could
+not test, and whether Prolog's top-ranked move was the search's move.
+
 **The second front door.** `engine/uci.lisp` runs `uci-loop`, which speaks the
 Universal Chess Interface on standard input and output. It shares the board,
 the move generator and the search with the WebSocket server and nothing else:

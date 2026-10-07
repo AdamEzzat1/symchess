@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PanelTab } from '../demo';
 import type { ClientCommand, Color, Fact, GameState, Plan } from '../protocol';
 import { selectFocus, verdictFor, type Highlight } from '../selectViz';
@@ -8,6 +8,7 @@ import { MoveStrip, StatusBanner } from './GamePanel';
 import { Icon, type IconName } from './icons';
 import { MiniBoard } from './MiniBoard';
 import { TONE } from './Overlays';
+import { Provenance, type ItemRef } from './Provenance';
 import { formatScore } from './SearchTrace';
 
 type Tab = PanelTab;
@@ -16,6 +17,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'plan', label: 'Plan' },
   { id: 'variations', label: 'Variations' },
   { id: 'facts', label: 'Facts' },
+  { id: 'trace', label: 'Trace' },
 ];
 
 /** How each kind of fact is presented. Purely cosmetic: icon, colour, heading. */
@@ -118,6 +120,18 @@ export function ReasoningPanel({
 }: Props) {
   const { symbolic, explanation, inspection, search } = state;
   const [fen, setFen] = useState('');
+  // The sentence being traced. It belongs to one search of one position.
+  const [traced, setTraced] = useState<ItemRef | null>(null);
+  useEffect(() => setTraced(null), [game.positionId]);
+  const traceItem = (ref: ItemRef | null) => {
+    setTraced(ref);
+    if (ref) setTab('trace');
+  };
+  // Picking a fact or plan in the trace view replaces a traced sentence.
+  const traceSelect = (h: Highlight) => {
+    setTraced(null);
+    onSelect(h);
+  };
 
   const replayButton = explanation && (
     <button
@@ -230,6 +244,18 @@ export function ReasoningPanel({
         </dl>
       </div>
       <p className="detail-text">{activeItem.text}</p>
+      {selected && same(selected, active) && (
+        <button
+          type="button"
+          className="btn btn-small btn-trace"
+          onClick={() => {
+            setTraced(null);
+            setTab('trace');
+          }}
+        >
+          Where does this come from?
+        </button>
+      )}
     </section>
   );
 
@@ -314,6 +340,20 @@ export function ReasoningPanel({
               </>
             )}
 
+            {tab === 'trace' && (
+              <Provenance
+                state={state}
+                game={game}
+                orientation={orientation}
+                selected={selected}
+                onSelect={traceSelect}
+                item={traced}
+                onItem={traceItem}
+                send={send}
+                busy={game.engineThinking || search?.running === true}
+              />
+            )}
+
             {tab === 'variations' && (
               <>
                 {search?.info ? (
@@ -383,6 +423,15 @@ export function ReasoningPanel({
                           </span>
                           {item.text}
                           {item.basis && <span className="basis">{item.basis}</span>}
+                          {explanation.positionId === game.positionId && (
+                            <button
+                              type="button"
+                              className="btn btn-small btn-trace"
+                              onClick={() => traceItem({ origin: 'explanation', searchId: explanation.searchId, index: i })}
+                            >
+                              Trace
+                            </button>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -398,6 +447,7 @@ export function ReasoningPanel({
                     send={send}
                     onReplay={onReplay}
                     replayPending={replayPending}
+                    onTrace={(searchId, index) => traceItem({ origin: 'counterfactual', searchId, index })}
                   />
                 )}
 

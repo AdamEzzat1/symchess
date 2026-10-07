@@ -220,3 +220,52 @@ The "missed chance" rating was added after the labels were written. One label (q
 - The evaluation-term explanation is given only when the standing position accounts for most of the score change and in the same direction; otherwise it says the change is in what the search sees ahead.
 - A fact's key does not include the other pieces involved, so two different pins of the same piece would count as one fact.
 - The review now runs a second search for each move the search would not have played, so it is slower than in milestone 6. Not re-timed on the hosted site.
+
+## 10. Milestone 8: results
+
+**Built.**
+
+| Piece | What it does |
+| --- | --- |
+| `knowledge/rules.pl` | Prolog reads its own source files and returns every rule (25 kinds of fact, 12 move motifs, 16 plans) as written, with the comment above it |
+| `moves:motif_rests_on/4` | A relation from a move motif to the facts of the position it uses. Each motif in an analysis now carries those fact ids |
+| `rule`, `check`, `basis`, `facts` on every sentence | What produced the claim, what decided its status, that check with its numbers, and the facts cited |
+| `*engine-rules*` | The 18 measurements and checks made in Lisp, described beside the code |
+| `rules` message | The whole index, 71 entries, once per connection |
+| `agreement` | Per search, the engine's count of Prolog sentences confirmed, unconfirmed, overruled and not checkable, and whether Prolog's top move was the search's |
+| Trace tab | The chain for a fact, a plan or a sentence; the list of disagreements; the rule index |
+
+**Measured** (the benchmark's new section 5).
+
+| Check | Development | Held-out |
+| --- | --- | --- |
+| Sentences that name a rule in the index, a check with a basis, and facts that exist | 266 of 266 | 80 of 80 |
+| Prolog's sentences about the chosen move: confirmed / unconfirmed / overruled / not checkable | 13 / 2 / 11 / 28 | 5 / 0 / 3 / 9 |
+| Prolog's top-ranked move was the move the search chose | 10 of 20 | 2 of 5 |
+| Where they differed and a best move is labelled: the search's move was a labelled one | 6 of 6 | 2 of 3 |
+| The same: Prolog's top move was a labelled one | 1 of 6 | 2 of 3 |
+
+The first row is a check that the mechanism is complete, not a measure of quality: it would be 100% for a wrong explanation too. The last three rows are the informative ones. Prolog's ranking, made without searching, picks the search's move about half the time, and where the two differ the search is right far more often on the development set. That is the measured reason the search does not use the ranking.
+
+**Two faults found while building it.**
+
+1. *"Why not?" about the engine's own move said nothing from Prolog.* A misplaced parenthesis in milestone 7 had put the whole Prolog section inside "unless the asked move is the engine's move". The indentation hid it and no test asked that question with Prolog running. Fixed; the end-to-end run now traces a comparison's sentences.
+2. *The frontend was pairing facts with verdicts from a table of its own* (`captures_hanging` goes with `hanging`, matched by square). That was chess knowledge in TypeScript, small but against the project's rule. It is gone: Prolog states the link and the frontend looks it up by id.
+
+**Checked.** Engine tests 175 (14 new), Prolog 91 (10 new), frontend 108 (19 new), end-to-end with eleven new checks: the index arrives complete with unique ids, a Prolog rule is quoted from its source, every sentence of an explanation and of a comparison can be followed back, and the capture of a loose knight cites the fact that the knight is undefended and the check that confirmed it. In the browser: opened the pinned knight on c6 and the loose knight on e5 in the Trace tab, followed a sentence to its facts and back, and read the disagreement list where Prolog preferred Bxc6+ and the search played d4.
+
+**Departures from the plan.**
+
+- Sentences cite fact ids, not fact keys. An id is unique within a position, which is what a link needs; two pins of the same piece share a key.
+- Statuses gained a second pointer, `check`, beside `rule`. The plan had one field; two were needed to tell "what made the claim" from "what judged it".
+- The rule index comes in its own message, not inside `hello`.
+- The disagreement list covers the searches on screen for the current position (the engine's move and any move asked about). It is not a running history across a game.
+
+**Limits.**
+
+- A rule's entry shows the rule's own clause, not the helper predicates it calls. `pin/2` is shown; `pin_kind/9` is not.
+- Only seven motif-to-fact links exist, because most motifs describe something the move creates. A fork the move sets up cites no fact of the position before it, correctly, so its chain is short.
+- The search gives a verdict only on the move it chose or one that was asked about. For any other candidate the chain ends at "ask the search about this move".
+- A plan's chain ends at "the search does not test plans", except where a comparison reports that a move removes the plan's facts.
+- The description of a rule is the comment above it. A comment that goes stale would be shown as written; the source beside it would not.
+- Not re-timed on the hosted site. Locally Prolog takes 75 to 90 ms for a middlegame position with the new links.

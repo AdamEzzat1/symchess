@@ -66,6 +66,20 @@ console.log('connection');
 const hello = await until(ofType('hello'), 'hello');
 check('engine says hello with protocol 1', hello.protocol === 1);
 check('Prolog knowledge layer is available', typeof hello.prolog === 'string');
+const index = await until(ofType('rules'), 'rule index');
+const ruleIds = new Set(index.rules.map((r) => r.id));
+const ruleOf = (id) => index.rules.find((r) => r.id === id);
+check('the rule index arrives complete, once, with unique ids', index.status === 'ok' && ruleIds.size === index.rules.length);
+check('it covers facts, motifs, plans, measurements and checks',
+  ['fact', 'motif', 'plan', 'measurement', 'check'].every((g) => index.rules.some((r) => r.group === g)));
+check('a Prolog rule is quoted from its source, with the comment above it',
+  ruleOf('fact:pin').source.startsWith('pin(Ctx, pin(Kind,') && ruleOf('fact:pin').summary.startsWith('A slider looks through'));
+check('every rule has a description and a place in the source', index.rules.every((r) => r.summary.length > 10 && r.where.length > 5));
+/** Can every sentence be followed back? Rule in the index; a check and a basis unless it is a measurement; cited facts exist. */
+const traceable = (items, facts) => items.every((i) =>
+  ruleIds.has(i.rule) &&
+  (i.status === 'measured' || (ruleIds.has(i.check) && typeof i.basis === 'string')) &&
+  i.facts.every((id) => facts.some((f) => f.id === id)));
 
 console.log('new game');
 send({ type: 'set_time_control', baseMs: null });
@@ -242,6 +256,28 @@ const whyLine = await until(ofType('line_replay'), 'counterfactual line');
 check('the line after the asked move can be replayed', whyLine.searchId === why.searchId && whyLine.steps[1].move.uci === 'd2d5');
 send({ type: 'explain_move', uci: 'd2d5', positionId: queenState.positionId - 1 });
 check('a question about an old position is refused', (await until(ofType('error'), 'stale why-not')).code === 'stale_position');
+
+console.log('following a claim back');
+const LOOSE = '4k3/8/8/4n3/8/8/4R3/4K3 w - - 0 1';
+send({ type: 'new_game', fen: LOOSE, mode: 'analysis' });
+const looseState = await until((m) => m.type === 'game_state' && m.fen === LOOSE, 'loose knight position');
+const looseFacts = await until((m) => m.type === 'symbolic_analysis' && m.positionId === looseState.positionId, 'its facts');
+const hangingFact = looseFacts.facts.find((f) => f.kind === 'hanging');
+const capture = looseFacts.moveHints.find((h) => h.uci === 'e2e5');
+check('Prolog says which fact the capture rests on',
+  hangingFact && capture.motifs.find((m) => m.kind === 'captures_hanging').facts.includes(hangingFact.id));
+check('a plan cites the same fact', looseFacts.plans.some((pl) => pl.because.includes(hangingFact.id)));
+send({ type: 'request_analysis', positionId: looseState.positionId });
+const traced = await until((m) => m.type === 'explanation' && m.positionId === looseState.positionId, 'explanation to trace', 60_000);
+check('every sentence names a rule, a check and facts that exist', traceable(traced.items, looseFacts.facts));
+const sentence = traced.items.find((i) => i.motif === 'captures_hanging');
+check('the search confirms the capture, citing that fact and the check it used',
+  sentence.status === 'confirmed' && sentence.facts.includes(hangingFact.id) &&
+  sentence.rule === 'motif:captures_hanging' && sentence.check === 'check:material_gain');
+check('the basis gives the number the check used', /ends \d+\.\d pawns of material ahead/.test(sentence.basis));
+check('agreement is counted by the engine', traced.agreement.confirmed >= 1 && traced.agreement.searchMove === traced.move.san);
+check('the earlier comparison can be followed back too', traceable(why.items, []) &&
+  why.items.some((i) => i.rule === 'motif:hangs_piece' && i.check === 'check:warning'));
 
 console.log('importing a game');
 send({ type: 'load_pgn', pgn: 'not a game at all' });

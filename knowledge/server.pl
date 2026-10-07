@@ -2,6 +2,7 @@
 
     stdin : one Prolog term per line, terminated by '.'
               version(Id).
+              rules(Id).
               analyze(Id, pos(Side, Pieces), [m(Uci, pos(Side2, Pieces2)), ...]).
               inspect(Id, pos(Side, Pieces), Square).
     stdout: one JSON object per line, always carrying the request "id" and
@@ -14,6 +15,7 @@
 :- use_module(library(json)).
 :- use_module(library(time)).
 :- use_module(analysis).
+:- use_module(rules).
 
 request_time_limit(3).
 
@@ -52,6 +54,8 @@ handle(_) :-
 answer(version(_), _{version:Version}) :-
     current_prolog_flag(version_data, swi(Major, Minor, Patch, _)),
     format(string(Version), "SWI-Prolog ~d.~d.~d", [Major, Minor, Patch]).
+answer(rules(_), _{rules:Rules}) :-
+    rule_index(Rules).
 answer(analyze(_, Pos, Moves), Dict) :-
     analyze(Pos, Moves, Dict).
 answer(inspect(_, Pos, Square), Dict) :-

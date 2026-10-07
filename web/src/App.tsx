@@ -25,6 +25,7 @@ import { useEngine } from './useEngine';
  *   &move=e2e4            play one move (the engine still decides if it is legal)
  *   &replay=1             with analyse=1: then step through the expected line
  *   &whynot=c4f7          ask "why not this move?" about it
+ *   &trace=hanging        open the first fact of that kind in the Trace tab
  *   ?tour=1               start the guided tour
  *   ?review=sample        import the sample game and open its review (&ply=N to jump)
  * It only sends ordinary commands the UI could send by hand.
@@ -100,16 +101,24 @@ function linkScript(): Script | null {
   const fen = LINK.get('fen');
   if (!fen) return null;
   const pick = LINK.get('select');
+  const traceKind = LINK.get('trace');
   return {
     key: 'link',
     fen,
     mode: 'analysis',
     analyse: LINK.get('analyse') === '1',
     replay: LINK.get('replay') === '1',
-    select: pick ? () => ({ kind: pick.startsWith('p') ? 'plan' : 'fact', id: pick }) : undefined,
+    select: traceKind
+      ? (analysis) => {
+          const fact = analysis.facts.find((f) => f.kind === traceKind);
+          return fact ? { kind: 'fact', id: fact.id } : null;
+        }
+      : pick
+        ? () => ({ kind: pick.startsWith('p') ? 'plan' : 'fact', id: pick })
+        : undefined,
     move: LINK.get('move') ?? undefined,
     ask: LINK.get('whynot') ?? undefined,
-    tab: LINK.get('whynot') ? 'variations' : undefined,
+    tab: traceKind ? 'trace' : LINK.get('whynot') ? 'variations' : undefined,
   };
 }
 

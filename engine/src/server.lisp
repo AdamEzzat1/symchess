@@ -156,7 +156,7 @@
            (progn
              (broadcast "hello"
                         "protocol" 1
-                        "engine" "symchess 0.4.0"
+                        "engine" "symchess 0.5.0"
                         "lisp" (format nil "~A ~A" (lisp-implementation-type)
                                        (lisp-implementation-version))
                         "prolog" (jnull *prolog-version-string*)
@@ -171,6 +171,9 @@
                                                 "moveTimeMs" (min (level-time-ms level)
                                                                   *max-move-time-ms*)))
                                          *levels*))
+             ;; The rules behind every claim, once per connection. Not tied to
+             ;; a position: it describes the engine, not the game.
+             (apply #'broadcast "rules" (rule-index-fields))
              (with-state
                (setf (game-move-time-ms game) (min (game-move-time-ms game) *max-move-time-ms*)
                      (game-depth game) (min (game-depth game) *max-depth*))

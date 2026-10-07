@@ -73,6 +73,8 @@ export interface AppState {
   /** The answer to "why not this move?", for the position it was asked about. */
   counterfactual: MessageOf<'counterfactual'> | null;
   review: Review | null;
+  /** The rule index. About the engine, not a position, so it outlives every move. */
+  rules: MessageOf<'rules'> | null;
   errors: { key: number; code: string; message: string }[];
   log: LogEntry[];
   /** Set when the server turned this client away rather than failing. */
@@ -92,6 +94,7 @@ export const initialState: AppState = {
   line: null,
   counterfactual: null,
   review: null,
+  rules: null,
   errors: [],
   log: [],
   refusal: null,
@@ -295,6 +298,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
         case 'inspection':
           return { ...base, inspection: m };
+
+        case 'rules':
+          return { ...base, rules: m };
 
         case 'error':
           if (m.code === 'server_full' || m.code === 'idle_timeout') {

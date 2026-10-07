@@ -558,3 +558,77 @@ test(unstoppable_pawn_plan_comes_before_the_generic_passed_pawn_plan) :-
     First.kind == queen_the_pawn.
 
 :- end_tests(analysis).
+
+% ------------------------------------------------------------------- rules
+% The knowledge base describing itself, and motifs citing the facts they use.
+
+:- use_module('../rules').
+
+:- begin_tests(rules).
+
+rule(Id, Rule) :- rule_index(Rules), member(Rule, Rules), get_dict(id, Rule, Id), !.
+
+test(every_kind_of_fact_has_a_rule_entry) :-
+    findall(Kind, ( clause(analysis:root_fact(_, _), Body), functor(Body, Kind, 2) ), Kinds),
+    length(Kinds, N), N >= 25,
+    forall(member(Kind, Kinds),
+           ( format(atom(Id), 'fact:~w', [Kind]), rule(Id, _) )).
+
+test(every_rule_has_a_description_and_its_own_source) :-
+    rule_index(Rules),
+    forall(member(Rule, Rules),
+           ( get_dict(summary, Rule, Summary), Summary \== "",
+             get_dict(source, Rule, Source),
+             get_dict(name, Rule, Name),
+             % the quoted clause really is the clause for that rule
+             sub_string(Source, _, _, _, Name)
+           )).
+
+test(the_source_is_quoted_as_written) :-
+    rule('fact:pin', Rule),
+    get_dict(source, Rule, Source),
+    sub_string(Source, 0, _, _, "pin(Ctx, pin(Kind, PC, PT, PSq, T, Sq, BT, BSq)) :-"),
+    sub_string(Source, _, _, _, "harmless_pin(Kind, T, Dir)"),
+    get_dict(where, Rule, 'knowledge/tactics.pl, pin/2').
+
+test(the_description_is_the_comment_above_the_rule) :-
+    rule('fact:pin', Rule),
+    get_dict(summary, Rule, "A slider looks through exactly one enemy piece at a more valuable one.").
+
+test(motifs_and_plans_are_indexed_by_kind) :-
+    rule('motif:captures_hanging', M), get_dict(group, M, motif),
+    rule('plan:exploit_pin', P), get_dict(group, P, plan).
+
+test(a_rule_written_as_two_clauses_is_one_entry) :-
+    rule_index(Rules),
+    findall(x, ( member(R, Rules), get_dict(id, R, 'motif:rook_to_open_file') ), [x]).
+
+test(helpers_are_not_listed_as_rules) :-
+    rule_index(Rules),
+    \+ ( member(R, Rules), get_dict(name, R, is_hanging) ),
+    \+ ( member(R, Rules), get_dict(name, R, pin_kind) ).
+
+motif_facts(Fen, Uci, AfterFen, Kind, FactKinds) :-
+    fen_pos(Fen, Pos),
+    fen_pos(AfterFen, After),
+    analyze(Pos, [m(Uci, After)], Reply),
+    Reply.moves = [Move],
+    member(Motif, Move.motifs),
+    get_dict(kind, Motif, Kind), !,
+    findall(K, ( member(Id, Motif.facts), member(F, Reply.facts),
+                 get_dict(id, F, Id), get_dict(kind, F, K) ),
+            FactKinds).
+
+test(capturing_an_undefended_piece_cites_the_fact_that_it_is_undefended) :-
+    motif_facts("4k3/8/8/4n3/8/8/4R3/4K3 w - - 0 1", e2e5,
+                "4k3/8/8/4R3/8/8/8/4K3 b - - 0 1", captures_hanging, [hanging]).
+
+test(a_motif_about_something_new_cites_no_fact) :-
+    motif_facts("r3k3/8/8/1N6/8/8/8/4K3 w - - 0 1", b5c7,
+                "r3k3/2N5/8/8/8/8/8/4K3 b - - 0 1", creates_fork, []).
+
+test(a_rook_to_an_open_file_cites_that_file) :-
+    motif_facts("4k3/pp3ppp/8/8/8/8/PP3PPP/R3K3 w - - 0 1", a1d1,
+                "4k3/pp3ppp/8/8/8/8/PP3PPP/3RK3 b - - 0 1", rook_to_open_file, [open_file]).
+
+:- end_tests(rules).

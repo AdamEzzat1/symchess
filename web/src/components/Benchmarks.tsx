@@ -66,6 +66,8 @@ TABLES.push({
     ['Explanation gave the labelled status', '9 of 9', '3 of 3'],
     ['“Confirmed” sentences the search line really backs', '13 of 13', '5 of 5'],
     ['“Why not this move?” rating matches the label', '20 of 20', '5 of 5'],
+    ['Sentences that name their rule, their check and facts that exist', '266 of 266', '80 of 80'],
+    ['Prolog’s top-ranked move was the move the search chose', '10 of 20', '2 of 5'],
   ],
 });
 
@@ -76,6 +78,7 @@ const LIMITS = [
   'Prolog’s rules read attacked squares, not legal moves, so a “trapped piece” or “pinned defender” is a strong hint, not a proof.',
   'The explanation benchmark is small and mostly uses sparse positions, so its perfect scores will not hold in crowded middlegames.',
   'Move ratings are a shallow search’s opinion. In the sample game it marks Morphy’s winning sacrifice 10.Nxb5 as a missed chance.',
+  'Prolog’s own ranking of moves, made without searching, matches the search about half the time. Where they differed on the first 39 positions the search’s move was the labelled one 6 times of 6 and Prolog’s once.',
   'One real pin is still missed: a piece tied to an undefended piece of equal value behind it.',
   'Strength was measured by self-play. There is no large tactical puzzle suite.',
   'All figures are from one desktop with other programs running.',

@@ -6,7 +6,7 @@
 
 import type { Color, Mode } from './protocol';
 
-export type PanelTab = 'reasoning' | 'plan' | 'variations' | 'facts';
+export type PanelTab = 'reasoning' | 'plan' | 'variations' | 'facts' | 'trace';
 
 export interface DemoStep {
   id: string;
