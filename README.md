@@ -74,6 +74,37 @@ Analysis always runs at full strength.
 - **Motion**: Expressive (strikes, checkmate and promotion effects) or Minimal
   (short glides and fades). Devices that ask for reduced motion get neither.
 
+## Analyse a whole game
+
+**Analyse a game (PGN)** in the left rail takes a pasted game. The engine reads
+it, checking every move against its own move generator, then goes through the
+game position by position with a short search and Prolog's facts for each. Step
+through with the arrow keys; the graph shows the evaluation across the game.
+
+- Comments, side variations and annotation marks are skipped. Only the first
+  game in the text is read.
+- A move that is not legal stops the reading there. The moves before it are
+  kept and the offending move is named.
+- At most 400 half-moves are kept.
+- The review searches each position to depth 5 or 250 ms, so its scores are
+  rough. Use Analysis on a position for a proper search.
+- `?review=sample` opens a sample game.
+
+## Use it from a chess program (UCI)
+
+```bash
+sbcl --script engine/uci.lisp
+```
+
+Point any program that speaks the Universal Chess Interface (Arena, Cute Chess,
+Banksia) at that command. Supported: `uci`, `isready`, `ucinewgame`,
+`position`, `go depth N`, `go movetime N`, `go infinite`, `stop`, `quit`.
+
+Limits, stated plainly: no options, no pondering, no opening book, and no real
+time management (with `wtime`/`btime` it simply spends a thirtieth of the
+clock). The Prolog layer is not used here: UCI has no place to put an
+explanation.
+
 ## Piece styles
 
 The **Pieces** switch in the left rail changes how the game is drawn. It is presentation only; the engine never hears of it.

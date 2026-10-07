@@ -22,12 +22,24 @@ export interface ReplayView {
   state: AppState;
 }
 
+/** Positions of an imported game being browsed get their own range of ids. */
+export const reviewPositionId = (index: number): number => -100000 - index;
+
 /** The view of step `index` of the line on hand, or null if there is no such step. */
 export function replayView(state: AppState, index: number): ReplayView | null {
-  const { game, line } = state;
-  const step = line?.steps[index];
-  if (!game || !line || !step) return null;
-  const positionId = replayPositionId(index);
+  const step = state.line?.steps[index];
+  return step ? stepView(state, step, index, replayPositionId(index)) : null;
+}
+
+/** The view of position `index` of the imported game, or null if the engine has not sent it yet. */
+export function reviewView(state: AppState, index: number): ReplayView | null {
+  const step = state.review?.steps[index];
+  return step ? stepView(state, step, index, reviewPositionId(index)) : null;
+}
+
+function stepView(state: AppState, step: LineStep, index: number, positionId: number): ReplayView | null {
+  const { game } = state;
+  if (!game) return null;
   const shown: GameState = {
     ...game,
     positionId,
@@ -43,7 +55,7 @@ export function replayView(state: AppState, index: number): ReplayView | null {
   };
   const symbolic: MessageOf<'symbolic_analysis'> = {
     type: 'symbolic_analysis',
-    seq: line.seq,
+    seq: state.lastSeq,
     positionId,
     status: step.symbolic ? 'ok' : 'unavailable',
     facts: step.facts,

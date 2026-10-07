@@ -1906,3 +1906,101 @@ select,
   gap: 6px;
   line-height: 1.5;
 }
+
+/* ------------------------------------------------------------ game review */
+.sheet-narrow {
+  width: min(620px, calc(100vw - 32px));
+}
+.pgn-text {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+.rail-section > .btn-small + .btn-small {
+  margin-top: 6px;
+}
+.review-title {
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+.review-error {
+  margin: 0 16px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--weak);
+  border-radius: 8px;
+  color: var(--weak);
+  line-height: 1.45;
+}
+.review-graph {
+  padding: 0 16px 10px;
+}
+.review-graph p {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+}
+.eval-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: rgb(8 13 20 / 60%);
+}
+.eval-graph-white {
+  fill: rgb(232 237 242 / 5%);
+}
+.eval-graph-zero {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.eval-graph-line {
+  fill: none;
+  stroke: var(--pv);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.eval-graph-now {
+  stroke: var(--weak);
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+.eval-graph-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+.eval-graph-hit:hover {
+  fill: rgb(74 168 255 / 14%);
+}
+.review-moves {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.review-moves li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.review-number {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.replay-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

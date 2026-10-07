@@ -562,6 +562,24 @@ get them. A step is shown with an empty legal-move list and a negative
 `positionId`, so it can be neither played on nor mistaken for a game position,
 and the reducer drops a line whose `searchId` is not the explanation on screen.
 
+**How a pasted game gets in.** `load_pgn` carries the text as typed. Lisp
+(`engine/src/pgn.lisp`) reads it: a move in standard notation is treated as a
+description (piece, destination, hints) and matched against the legal moves the
+generator produces; no match, or two, and the move is refused. The reply is
+`game_loaded` with the engine's own notation for the moves it accepted and, if
+reading stopped early, which half-move stopped it. The game becomes the
+session's game. A background thread then sends one `review_step` per position
+(board, score from a short search, evaluation terms, Prolog's facts) and a
+`review_complete`. All carry a `gameId`; the reducer drops any that are not for
+the game it holds, and `review_closed` tells it when the engine has let go. A
+browsed position is shown exactly like a replayed line step: no legal moves, a
+negative id.
+
+**The second front door.** `engine/uci.lisp` runs `uci-loop`, which speaks the
+Universal Chess Interface on standard input and output. It shares the board,
+the move generator and the search with the WebSocket server and nothing else:
+no sessions, no clocks, no Prolog.
+
 **How visualization elements map to Prolog facts.** One-to-one and by
 construction: a `Viz` object reaches the board only as a member of some fact's,
 plan's or inspection's `viz` array. The single exception is the best-move

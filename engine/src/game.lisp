@@ -139,6 +139,9 @@ it is the search's best move. Must run with LEVEL's features switched on."
   (clock-started nil)                   ; NOW-MS when the running clock started
   (search-id 0)
   (line nil)                            ; the newest explained line: (:sid :pid :pos :pv)
+  (review-id 0)                         ; counts imported games
+  (review-flag nil)                     ; (list nil) while an imported game is being reviewed
+  (review-open nil)                     ; the gameId the client is holding, if any
   (stop-flag nil)                       ; (list nil); car set to T to cancel a worker
   (worker nil)
   (thinking nil)
@@ -409,6 +412,24 @@ if it ends the game, or if Prolog is unavailable. Costs one Prolog query."
 (defparameter *line-steps* 8
   "The most moves of a line that LINE-REPLAY-STEPS will walk.")
 
+(defun position-step-fields (p move by)
+  "What the interface needs to show position P as one step of a line or game:
+the board, who is in check, and Prolog's facts. MOVE and BY describe the move
+that led here (:null for a starting position). One Prolog query."
+  (let* ((over (not (has-legal-move-p p)))
+         (analysis (and (not over) (symbolic-analysis p))))
+    (list "move" move
+          "by" by
+          "fen" (pos-to-fen p)
+          "board" (board-object p)
+          "turn" (side-name (pos-side p))
+          "check" (if (in-check-p p)
+                      (square-name (king-square p (pos-side p)))
+                      :null)
+          "checkmate" (jbool (and over (in-check-p p)))
+          "symbolic" (jbool analysis)
+          "facts" (if analysis (jget analysis "facts" '()) '()))))
+
 (defun line-replay-steps (p pv)
   "The positions along line PV starting from P, as step objects: the first is P
 itself, each later one the position after one more move. Every step carries the
@@ -417,20 +438,7 @@ making a move or judging a position itself. One Prolog query per step."
   (let ((p (copy-position p))
         (steps '()))
     (flet ((snapshot (move by)
-             (let* ((over (not (has-legal-move-p p)))
-                    (analysis (and (not over) (symbolic-analysis p))))
-               (push (obj "move" move
-                          "by" by
-                          "fen" (pos-to-fen p)
-                          "board" (board-object p)
-                          "turn" (side-name (pos-side p))
-                          "check" (if (in-check-p p)
-                                      (square-name (king-square p (pos-side p)))
-                                      :null)
-                          "checkmate" (jbool (and over (in-check-p p)))
-                          "symbolic" (jbool analysis)
-                          "facts" (if analysis (jget analysis "facts" '()) '()))
-                     steps))))
+             (push (apply #'obj (position-step-fields p move by)) steps)))
       (snapshot :null :null)
       (loop for m in pv
             repeat *line-steps*
@@ -557,6 +565,63 @@ any time; with no search running it does nothing."
 ;; The stop flag's car is NIL (keep going), T (cancelled: discard everything)
 ;; or :FINISH (stop searching, keep the result).
 (defun cancelled-p (flag) (eq (car flag) t))
+
+;;; ------------------------------------------------------- reviewing a game
+;;; An imported game is walked once, position by position, in its own thread.
+;;; Each position gets a short full-strength search and one Prolog query, and
+;;; is sent as soon as it is ready. Messages carry the game's id, so a client
+;;; that has moved on to another game can ignore them.
+
+(defvar *review-depth* 5)
+(defvar *review-time-ms* 250)
+
+(defun cancel-review (g)
+  (when (game-review-flag g)
+    (setf (car (game-review-flag g)) t
+          (game-review-flag g) nil)))
+
+(defun close-review (g)
+  "Stop any review and tell the client its imported game is no longer held."
+  (cancel-review g)
+  (when (game-review-open g)
+    (broadcast "review_closed" "gameId" (game-review-open g))
+    (setf (game-review-open g) nil)))
+
+(defun run-review (rid flag start moves)
+  (let ((p (copy-position start))
+        (ply 0))
+    (flet ((emit (move by)
+             (when (car flag) (return-from run-review nil))
+             (let* ((fields (position-step-fields p move by))
+                    (result (and (has-legal-move-p p)
+                                 (sb-thread:with-mutex (*search-lock*)
+                                   (unless (car flag)
+                                     (set-engine-features)
+                                     (search-position p :max-depth *review-depth*
+                                                        :time-ms *review-time-ms*
+                                                        :stop-fn (lambda () (car flag)))))))
+                    (scored (and result (search-result-best-move result))))
+               (when (car flag) (return-from run-review nil))
+               (apply #'broadcast "review_step"
+                      "gameId" rid
+                      "ply" ply
+                      ;; White's view, like every other score. No score for a
+                      ;; position where the game has ended.
+                      "score" (if scored
+                                  (score-object (search-result-score result) (pos-side p))
+                                  :null)
+                      "depth" (if scored (search-result-depth result) 0)
+                      "evalBreakdown" (eval-breakdown p)
+                      fields))))
+      (emit :null :null)
+      (dolist (m moves)
+        (let* ((legal (legal-moves p))
+               (move (move-object p m legal))
+               (by (side-name (pos-side p))))
+          (make-move p m)
+          (incf ply)
+          (emit move by)))
+      (broadcast "review_complete" "gameId" rid "plies" ply))))
 
 (defun cancel-worker (g)
   (when (game-stop-flag g)
@@ -741,6 +806,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
 
 (defun cmd-new-game (g msg)
   (cancel-worker g)
+  (close-review g)
   (let ((fen (jget msg "fen"))
         (color (jget msg "humanColor"))
         (mode (jget msg "mode")))
@@ -900,6 +966,80 @@ looking at, and gets nothing if that is no longer the newest one."
                   "steps" (line-replay-steps (getf line :pos) (getf line :pv))))
      :name "symchess-line")))
 
+(defparameter *max-pgn-length* 200000)
+
+(defun cmd-load-pgn (g msg)
+  "Import a game: every move is checked by the move generator, the game
+becomes this session's game (in analysis mode, at its last position), and a
+review of all its positions starts in the background."
+  (let ((text (require-string msg "pgn")))
+    (when (> (length text) *max-pgn-length*)
+      (protocol-error "bad_pgn" "That PGN is too long (limit ~D characters)." *max-pgn-length*))
+    (let* ((read (read-pgn-game text))
+           (moves (getf read :moves))
+           (failure (getf read :error))
+           (start (getf read :start)))
+      (when (and (null moves) failure)
+        (protocol-error "bad_pgn" "No moves could be read. Half-move ~D (~A): ~A"
+                        (first failure) (second failure) (third failure)))
+      (when (null moves)
+        (protocol-error "bad_pgn" "There are no moves in that PGN."))
+      (cancel-worker g)
+      (cancel-review g)
+      ;; Replay the game onto the session's own position, recording each move
+      ;; exactly as if it had been played here.
+      (let ((p (copy-position start))
+            (records '()))
+        (dolist (m moves)
+          (let ((mover (pos-side p)))
+            (push (list :move m
+                        :san (move-san p m)
+                        :uci (move-uci m)
+                        :by "human"
+                        :captured (if (move-ep-p m)
+                                      (* (- mover) +pawn+)
+                                      (aref (pos-board p) (move-to m))))
+                  records)
+            (make-move p m)))
+        (setf (game-mode g) "analysis"
+              (game-pos g) p
+              (game-start-fen g) (pos-to-fen start)
+              (game-records g) records
+              (game-line g) nil
+              (game-status g) "active"
+              (game-winner g) nil))
+      (incf (game-position-id g))
+      (reset-clocks g)
+      (update-status g)
+      (let ((rid (incf (game-review-id g)))
+            (flag (list nil)))
+        (setf (game-review-flag g) flag
+              (game-review-open g) rid)
+        (broadcast "game_loaded"
+                   "gameId" rid
+                   "tags" (cons :obj (loop for key in '("Event" "Site" "Date" "White" "Black" "Result")
+                                           for value = (cdr (assoc key (getf read :tags)
+                                                                   :test #'string-equal))
+                                           when value collect (cons key value)))
+                   "moves" (getf read :sans)
+                   "result" (jnull (getf read :result))
+                   "error" (if failure
+                               (obj "ply" (first failure)
+                                    "text" (second failure)
+                                    "message" (third failure))
+                               :null))
+        (broadcast-game-state g)
+        (after-state-change g)
+        (sb-thread:make-thread
+         (lambda (&aux (*game* g))
+           (handler-case (run-review rid flag start moves)
+             (error (e)
+               (format *error-output* "~&[review] ~A~%" e)
+               (broadcast "error" "code" "review_failed"
+                                  "message" (princ-to-string e)
+                                  "inReplyTo" :null))))
+         :name "symchess-review")))))
+
 (defun cmd-resign (g)
   (unless (string= (game-status g) "active")
     (protocol-error "game_over" "The game is already over."))
@@ -937,6 +1077,8 @@ looking at, and gets nothing if that is no longer the newest one."
                     ((string= type "set_mode") (cmd-set-mode g msg))
                     ((string= type "inspect_square") (cmd-inspect-square g msg))
                     ((string= type "request_line") (cmd-request-line g msg))
+                    ((string= type "load_pgn") (cmd-load-pgn g msg))
+                    ((string= type "stop_review") (cancel-review g))
                     ((string= type "resign") (cmd-resign g))
                     (t (protocol-error "unknown_command" "Unknown command type ~S." type))))))
       (protocol-error (e)

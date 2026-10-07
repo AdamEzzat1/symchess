@@ -7,6 +7,7 @@
    ;; moves
    #:generate-moves #:legal-moves #:make-move #:unmake-move #:in-check-p
    #:perft #:move-uci #:move-san #:parse-uci-move
+   #:parse-san-move #:read-pgn-game #:uci-loop
    ;; eval / search
    #:evaluate #:eval-breakdown #:search-position #:tt-clear
    #:set-engine-features #:see

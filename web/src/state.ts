@@ -7,6 +7,7 @@ import type {
   Score,
   GameState,
   MessageOf,
+  ReviewStep,
   SearchInfo,
   ServerMessage,
 } from './protocol';
@@ -44,6 +45,18 @@ export interface LogEntry {
   dropped: boolean;
 }
 
+/** An imported game and what the engine has said about its positions so far. */
+export interface Review {
+  gameId: number;
+  tags: Record<string, string>;
+  moves: string[];
+  result: string | null;
+  error: { ply: number; text: string; message: string } | null;
+  /** Indexed by ply. A position the engine has not reached yet is undefined. */
+  steps: (ReviewStep | undefined)[];
+  complete: boolean;
+}
+
 export interface AppState {
   connection: Connection;
   hello: MessageOf<'hello'> | null;
@@ -57,6 +70,7 @@ export interface AppState {
   inspection: MessageOf<'inspection'> | null;
   /** The line behind `explanation`, once asked for. Never outlives it. */
   line: MessageOf<'line_replay'> | null;
+  review: Review | null;
   errors: { key: number; code: string; message: string }[];
   log: LogEntry[];
   /** Set when the server turned this client away rather than failing. */
@@ -74,6 +88,7 @@ export const initialState: AppState = {
   explanation: null,
   inspection: null,
   line: null,
+  review: null,
   errors: [],
   log: [],
   refusal: null,
@@ -109,6 +124,11 @@ export function isStale(state: AppState, message: ServerMessage): boolean {
     case 'search_update':
     case 'search_complete':
       return state.search === null || message.searchId !== state.search.searchId;
+    case 'review_step':
+    case 'review_complete':
+    case 'review_closed':
+      // Belongs to an imported game this client is no longer holding.
+      return state.review === null || message.gameId !== state.review.gameId;
     case 'line_replay':
       // A line belongs to the explanation on screen and to nothing else.
       return state.explanation === null || message.searchId !== state.explanation.searchId;
@@ -225,6 +245,25 @@ export function reducer(state: AppState, action: Action): AppState {
 
         case 'line_replay':
           return { ...base, line: m };
+
+        case 'game_loaded':
+          return {
+            ...base,
+            review: { gameId: m.gameId, tags: m.tags, moves: m.moves, result: m.result, error: m.error, steps: [], complete: false },
+          };
+
+        case 'review_step': {
+          const { type: _type, seq: _seq, gameId: _gameId, ...step } = m;
+          const steps = state.review!.steps.slice();
+          steps[m.ply] = step;
+          return { ...base, review: { ...state.review!, steps } };
+        }
+
+        case 'review_complete':
+          return { ...base, review: { ...state.review!, complete: true } };
+
+        case 'review_closed':
+          return { ...base, review: null };
 
         case 'inspection':
           return { ...base, inspection: m };

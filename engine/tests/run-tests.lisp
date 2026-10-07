@@ -377,6 +377,121 @@
          (list :true '())))
 (stop-prolog)
 
+(section "reading standard notation")
+(let ((fens '("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+              "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
+              "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1"
+              "4k3/1P6/8/8/8/8/6p1/4K2R b K - 0 1"
+              "rnbqkbnr/ppp1pppp/8/8/3pP3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 2"
+              "4k3/8/8/8/8/8/8/N3K1NN w - - 0 1")))
+  (check "the engine's own notation reads back as the same move, for every legal move"
+         (loop for fen in fens
+               always (let ((p (pos-from-fen fen)))
+                        (every (lambda (m) (eql (parse-san-move p (move-san p m)) m))
+                               (legal-moves p))))
+         t))
+(let ((p (pos-from-fen "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")))
+  (flet ((reads (text) (let ((m (parse-san-move p text))) (and m (move-uci m)))))
+    (check "check marks and annotations are ignored" (reads "Nxf7!?") "e5f7")
+    (check "castling may be written with zeros" (reads "0-0") "e1g1")
+    (check "more disambiguation than needed is accepted" (reads "Ne5xf7") "e5f7")
+    (check "a move that is not legal is refused" (reads "Qh8") nil)
+    (check "nonsense is refused" (reads "hello") nil)
+    (check "a pawn move is not mistaken for a piece move" (reads "a3") "a2a3")))
+(check "an ambiguous description is refused rather than guessed"
+       (parse-san-move (pos-from-fen "4k3/8/8/8/8/8/8/1N2KN2 w - - 0 1") "Nd2") nil)
+(check "promotion with or without the equals sign"
+       (let ((p (pos-from-fen "4k3/1P6/8/8/8/8/8/4K3 w - - 0 1")))
+         (list (move-uci (parse-san-move p "b8=Q")) (move-uci (parse-san-move p "b8N"))))
+       '("b7b8q" "b7b8n"))
+
+(section "reading a game")
+(defparameter *opera-game* "[Event \"A night at the opera\"]
+[White \"Morphy\"]
+[Black \"Duke of Brunswick and Count Isouard\"]
+[Result \"1-0\"]
+
+1. e4 e5 2. Nf3 d6 3. d4 Bg4 {a weak move} 4. dxe5 Bxf3 5. Qxf3 dxe5 6. Bc4 Nf6
+7. Qb3 Qe7 8. Nc3 c6 9. Bg5 b5 (9... Na6 10. Bxf6 (10. O-O) gxf6) 10. Nxb5! cxb5
+11. Bxb5+ Nbd7 12. O-O-O Rd8 13. Rxd7 $1 Rxd7 14. Rd1 Qe6 15. Bxd7+ Nxd7
+16. Qb8+ Nxb8 17. Rd8# 1-0")
+(let* ((game (read-pgn-game *opera-game*))
+       (end (let ((p (copy-position (getf game :start))))
+              (dolist (m (getf game :moves)) (make-move p m))
+              p)))
+  (check "every move of a real game is read" (length (getf game :moves)) 33)
+  (check "no error is reported" (getf game :error) nil)
+  (check "the last move is the mate" (first (last (getf game :sans))) "Rd8#")
+  (check "the final position is checkmate"
+         (and (in-check-p end) (not (has-legal-move-p end))) t)
+  (check "comments, variations and glyphs are skipped"
+         (subseq (getf game :sans) 17 20) '("b5" "Nxb5" "cxb5"))
+  (check "tags are kept" (cdr (assoc "White" (getf game :tags) :test #'string=)) "Morphy")
+  (check "the result is read" (getf game :result) "1-0"))
+(let ((game (read-pgn-game "1. e4 e5 2. Ke3 Nc6 3. Nf3")))
+  (check "an illegal move stops the reading there and keeps what came before"
+         (list (getf game :sans) (subseq (getf game :error) 0 2))
+         '(("e4" "e5") (3 "Ke3"))))
+(check "a game that starts from a FEN tag"
+       (getf (read-pgn-game "[FEN \"4k3/8/8/8/8/8/8/R3K3 w Q - 0 1\"] 1. O-O-O Ke7") :sans)
+       '("O-O-O" "Ke7"))
+(check "a bad FEN tag is reported, not signalled"
+       (first (getf (read-pgn-game "[FEN \"nonsense\"] 1. e4") :error)) 0)
+(check "text that is not a game yields no moves and an error"
+       (let ((game (read-pgn-game "hello world")))
+         (list (getf game :moves) (and (getf game :error) t)))
+       '(nil t))
+(check "only the first game of several is read"
+       (getf (read-pgn-game "[Event \"one\"] 1. e4 e5 1-0 [Event \"two\"] 1. d4 d5 0-1") :sans)
+       '("e4" "e5"))
+(check "a long game is cut at the limit"
+       (let ((*max-pgn-plies* 2))
+         (let ((game (read-pgn-game "1. e4 e5 2. Nf3 Nc6")))
+           (list (length (getf game :moves)) (first (getf game :error)))))
+       '(2 3))
+
+(section "universal chess interface")
+(flet ((session (text)
+         (let ((out (make-string-output-stream)))
+           (uci-loop (make-string-input-stream text) out)
+           (let ((lines '()) (all (get-output-stream-string out)))
+             (with-input-from-string (s all)
+               (loop for line = (read-line s nil) while line do (push line lines)))
+             (nreverse lines)))))
+  (let ((lines (session (format nil "uci~%isready~%position startpos moves e2e4 e7e5~%go depth 3~%quit~%"))))
+    (check "it introduces itself and says it is ready"
+           (list (first lines) (and (member "uciok" lines :test #'string=) t)
+                 (and (member "readyok" lines :test #'string=) t))
+           '("id name SymChess" t t))
+    (check "a search reports its progress"
+           (and (some (lambda (l) (search "info depth 3 score cp" l)) lines) t) t)
+    (check "it ends with a legal best move for the position it was given"
+           (let* ((best (first (last lines)))
+                  (p (pos-from-fen +start-fen+)))
+             (make-move p (parse-uci-move p "e2e4"))
+             (make-move p (parse-uci-move p "e7e5"))
+             (and (eql (mismatch "bestmove " best) 9)
+                  (parse-uci-move p (subseq best 9))
+                  t))
+           t))
+  (check "a mate is reported as a mate"
+         (and (some (lambda (l) (search "score mate 1" l))
+                    (session (format nil "position fen 6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1~%go depth 3~%quit~%")))
+              t)
+         t)
+  (check "movetime ends the search and still gives a move"
+         (let ((best (first (last (session (format nil "position startpos~%go movetime 100~%quit~%"))))))
+           (eql (mismatch "bestmove " best) 9))
+         t)
+  (check "stop ends an unbounded search with a move"
+         (let ((best (first (last (session (format nil "position startpos~%go infinite~%stop~%quit~%"))))))
+           (eql (mismatch "bestmove " best) 9))
+         t)
+  (check "an unreadable position and an unknown command are reported, not fatal"
+         (let ((lines (session (format nil "position fen nonsense~%flibble~%isready~%quit~%"))))
+           (list (length lines) (first (last lines))))
+         '(3 "readyok")))
+
 (section "json and websocket primitives")
 (check "json round trip"
        (json-encode (json-decode "{\"a\":[1,2,{\"b\":null}],\"c\":\"x\\ny\",\"d\":true,\"e\":-3}"))

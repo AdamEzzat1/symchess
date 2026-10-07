@@ -156,7 +156,7 @@
            (progn
              (broadcast "hello"
                         "protocol" 1
-                        "engine" "symchess 0.3.0"
+                        "engine" "symchess 0.4.0"
                         "lisp" (format nil "~A ~A" (lisp-implementation-type)
                                        (lisp-implementation-version))
                         "prolog" (jnull *prolog-version-string*)
@@ -184,7 +184,7 @@
                  (unless text (return))
                  (handle-command client text))))
         ;; The visitor is gone: stop their search and free the seat.
-        (with-state (cancel-worker game))
+        (with-state (cancel-worker game) (cancel-review game))
         (setf (game-client game) nil)
         (release-seat game)))))
 

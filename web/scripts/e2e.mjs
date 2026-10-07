@@ -222,6 +222,28 @@ check('every step carries a board and Prolog facts', replay.steps.every((s) => t
 check('sides alternate along the line', replay.steps.slice(1).every((s, i) => s.by === (i % 2 === 0 ? 'black' : 'white')));
 check('asking for a line does not change the game', (await (send({ type: 'sync' }), until(ofType('game_state'), 'sync'))).positionId === game.positionId + 2);
 
+console.log('importing a game');
+send({ type: 'load_pgn', pgn: 'not a game at all' });
+check('text with no moves is refused', (await until(ofType('error'), 'bad pgn')).code === 'bad_pgn');
+send({ type: 'load_pgn', pgn: '[White "A"] [Black "B"] 1. e4 e5 2. Nf3 {develops} Nc6 3. Ke3 Nf6 1-0' });
+const imported = await until(ofType('game_loaded'), 'game loaded');
+check('the moves before an illegal one are kept', imported.moves.join(' ') === 'e4 e5 Nf3 Nc6');
+check('the illegal move is named', imported.error && imported.error.ply === 5 && imported.error.text === 'Ke3');
+check('tags are passed on', imported.tags.White === 'A' && imported.tags.Black === 'B');
+const importedState = await until((m) => m.type === 'game_state' && m.history.length === 4, 'state after import');
+check('the imported game becomes the game, in analysis mode', importedState.settings.mode === 'analysis' && importedState.history[2].san === 'Nf3');
+const reviewSteps = [];
+for (;;) {
+  const m = await until((x) => x.type === 'review_step' || x.type === 'review_complete', 'review');
+  if (m.type === 'review_complete') { check('the review covers every position', m.plies === 4 && reviewSteps.length === 5); break; }
+  reviewSteps.push(m);
+}
+check('positions arrive in order with the game id', reviewSteps.every((s, i) => s.ply === i && s.gameId === imported.gameId));
+check('each has a score, an evaluation and a board', reviewSteps.every((s) => s.score && typeof s.evalBreakdown.total === 'number' && typeof s.board === 'object'));
+check('the first has no move and the rest name theirs', reviewSteps[0].move === null && reviewSteps[4].move.san === 'Nc6');
+send({ type: 'new_game', humanColor: 'white', mode: 'play' });
+check('starting a new game closes the review', (await until(ofType('review_closed'), 'review closed')).gameId === imported.gameId);
+
 // leave the engine in a clean default state for the UI
 send({ type: 'set_level', level: 'club' });
 send({ type: 'new_game', humanColor: 'white', mode: 'play' });

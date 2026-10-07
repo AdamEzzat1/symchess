@@ -162,6 +162,16 @@ export interface LineStep {
   facts: Fact[];
 }
 
+/** One position of an imported game: a line step, plus a short search's verdict on it. */
+export interface ReviewStep extends LineStep {
+  /** 0 is the starting position; N is the position after the Nth half-move. */
+  ply: number;
+  /** White's view. Null where the game has ended. */
+  score: Score | null;
+  depth: number;
+  evalBreakdown: EvalBreakdown;
+}
+
 export type ServerMessage =
   | {
       type: 'hello';
@@ -246,6 +256,21 @@ export type ServerMessage =
       searchId: number;
       steps: LineStep[];
     }
+  | {
+      /** A PGN was read. Every move in `moves` was checked by the engine. */
+      type: 'game_loaded';
+      seq: number;
+      gameId: number;
+      tags: Record<string, string>;
+      /** The engine's own notation for the moves it accepted. */
+      moves: string[];
+      result: string | null;
+      /** The half-move that stopped the reading, if one did. */
+      error: { ply: number; text: string; message: string } | null;
+    }
+  | ({ type: 'review_step'; seq: number; gameId: number } & ReviewStep)
+  | { type: 'review_complete'; seq: number; gameId: number; plies: number }
+  | { type: 'review_closed'; seq: number; gameId: number }
   | { type: 'error'; seq: number; code: string; message: string; inReplyTo: number | null };
 
 export type ServerMessageType = ServerMessage['type'];
@@ -264,6 +289,8 @@ export type ClientCommand =
   | { type: 'set_mode'; mode: Mode; humanColor?: Color }
   | { type: 'inspect_square'; square: Square; positionId: number }
   | { type: 'request_line'; searchId: number }
+  | { type: 'load_pgn'; pgn: string }
+  | { type: 'stop_review' }
   | { type: 'resign' };
 
 // ---------------------------------------------------------------- validation
@@ -336,6 +363,19 @@ const searchInfo = {
 const board: Check = (v) => isObj(v) && Object.entries(v).every(([k, p]) => square(k) && str(p));
 const fact = shape({ id: str, kind: str, side: nullable(color), squares: arr(square), text: str, viz: arr(viz), use: str });
 
+const lineStep = {
+  move: nullable(legalMove),
+  by: nullable(color),
+  fen: str,
+  board,
+  turn: color,
+  check: nullable(square),
+  checkmate: bool,
+  symbolic: bool,
+  facts: arr(fact),
+};
+const evalBreakdown = shape({ material: num, placement: num, pawnStructure: num, bishopPair: num, total: num });
+
 const validators: Record<ServerMessageType, Check> = {
   hello: shape({ protocol: num, engine: str, lisp: str, prolog: nullable(str) }),
   game_state: shape({
@@ -378,7 +418,7 @@ const validators: Record<ServerMessageType, Check> = {
     positionId: num,
     searchId: num,
     purpose: oneOf('play', 'analysis'),
-    evalBreakdown: shape({ material: num, placement: num, pawnStructure: num, bishopPair: num, total: num }),
+    evalBreakdown,
     ...searchInfo,
   }),
   symbolic_analysis: shape({
@@ -422,20 +462,18 @@ const validators: Record<ServerMessageType, Check> = {
   line_replay: shape({
     positionId: num,
     searchId: num,
-    steps: arr(
-      shape({
-        move: nullable(legalMove),
-        by: nullable(color),
-        fen: str,
-        board,
-        turn: color,
-        check: nullable(square),
-        checkmate: bool,
-        symbolic: bool,
-        facts: arr(fact),
-      }),
-    ),
+    steps: arr(shape(lineStep)),
   }),
+  game_loaded: shape({
+    gameId: num,
+    tags: (v) => isObj(v) && Object.values(v).every(str),
+    moves: arr(str),
+    result: nullable(str),
+    error: nullable(shape({ ply: num, text: str, message: str })),
+  }),
+  review_step: shape({ gameId: num, ply: num, score: nullable(score), depth: num, evalBreakdown, ...lineStep }),
+  review_complete: shape({ gameId: num, plies: num }),
+  review_closed: shape({ gameId: num }),
   error: shape({ code: str, message: str, inReplyTo: nullable(num) }),
 };
 

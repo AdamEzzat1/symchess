@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Benchmarks } from './components/Benchmarks';
+import { GameReview } from './components/GameReview';
+import { PgnImport } from './components/PgnImport';
 import { Board } from './components/Board';
 import { Controls, DEFAULT_DISPLAY, DisplayRail, LayerRail, PlayerBar, type DisplayOptions } from './components/GamePanel';
 import { PieceArtContext, SvgDefs } from './components/Pieces';
@@ -9,7 +11,8 @@ import { SearchTrace } from './components/SearchTrace';
 import { Tour } from './components/Tour';
 import { DEMO, type DemoStep, type PanelTab } from './demo';
 import type { Color, Level, MessageOf, Mode } from './protocol';
-import { replayView, stepLabels } from './replay';
+import { replayView, reviewView, stepLabels } from './replay';
+import { SAMPLE_PGN } from './samples';
 import { DEFAULT_LAYERS, LAYERS, layerCounts, selectFocus, selectViz, type Highlight, type LayerId } from './selectViz';
 import { useEngine } from './useEngine';
 
@@ -22,6 +25,7 @@ import { useEngine } from './useEngine';
  *   &move=e2e4            play one move (the engine still decides if it is legal)
  *   &replay=1             with analyse=1: then step through the expected line
  *   ?tour=1               start the guided tour
+ *   ?review=sample        import the sample game and open its review (&ply=N to jump)
  * It only sends ordinary commands the UI could send by hand.
  */
 const LINK = new URLSearchParams(window.location.search);
@@ -186,8 +190,44 @@ export function App() {
     [state, replayFor, replayAt],
   );
   const replayPending = replayFor !== null && replay === null;
-  const shownGame = replay?.game ?? game;
-  const shownState = replay?.state ?? state;
+
+  // An imported game being browsed. The board shows one of its positions,
+  // under the same "cannot be played on" rules as a replayed line.
+  const [showImport, setShowImport] = useState(false);
+  const [reviewAt, setReviewAt] = useState<number | null>(null);
+  const reviewId = state.review?.gameId ?? null;
+  useEffect(() => {
+    // A newly imported game opens at its start; a closed one ends the browsing.
+    setReviewAt(reviewId === null ? null : Number(LINK.get('ply')) || 0);
+    setReplayFor(null);
+  }, [reviewId]);
+  const reviewing = state.review !== null && reviewAt !== null;
+  // The engine sends positions one at a time. Until the one asked for has
+  // arrived, show the latest one before it, so the board and the panel always
+  // describe the same position.
+  const reviewShown = useMemo(() => {
+    if (!state.review || reviewAt === null) return null;
+    const { steps } = state.review;
+    for (let i = Math.min(reviewAt, steps.length - 1); i >= 0; i--) if (steps[i]) return i;
+    return null;
+  }, [state.review, reviewAt]);
+  const reviewed = useMemo(
+    () => (reviewShown !== null ? reviewView(state, reviewShown) : null),
+    [state, reviewShown],
+  );
+  const leaveReview = useCallback(() => setReviewAt(null), []);
+  const sampleLoaded = useRef(false);
+  useEffect(() => {
+    if (connection !== 'open') sampleLoaded.current = false;
+    else if (LINK.get('review') === 'sample' && positionId !== null && !sampleLoaded.current) {
+      sampleLoaded.current = true;
+      send({ type: 'load_pgn', pgn: SAMPLE_PGN });
+    }
+  }, [connection, positionId, send]);
+
+  const browsing = reviewed ?? replay;
+  const shownGame = browsing?.game ?? game;
+  const shownState = browsing?.state ?? state;
   const shownId = shownGame?.positionId ?? null;
 
   // Fact and plan ids are only meaningful for the position they came with.
@@ -263,7 +303,7 @@ export function App() {
   // The glass inspector shows what is hovered, otherwise what is selected.
   const active = hovered ?? selected;
   // While a line is replayed the overlays describe the replayed position.
-  const overlayMode = analysisMode || replay !== null;
+  const overlayMode = analysisMode || browsing !== null;
   const viz = useMemo(
     () =>
       selectViz(shownState, {
@@ -279,7 +319,7 @@ export function App() {
   // The search's own best move, for the 3D board, under the same switch as the flat board's arrow.
   const best = state.search?.info?.bestMove;
   const bestArrow =
-    analysisMode && !replay && layers.has('best') && best && state.search?.positionId === positionId
+    analysisMode && !browsing && !reviewing && layers.has('best') && best && state.search?.positionId === positionId
       ? { from: best.from, to: best.to }
       : null;
 
@@ -344,7 +384,7 @@ export function App() {
           )}
         </header>
 
-        {game && (analysisMode || replay) && <LayerRail enabled={layers} counts={counts} onToggle={toggleLayer} />}
+        {game && (analysisMode || browsing) && <LayerRail enabled={layers} counts={counts} onToggle={toggleLayer} />}
         {game && (
           <section className="rail-section" aria-label="Piece style">
             <h2 className="rail-title">Pieces</h2>
@@ -394,11 +434,25 @@ export function App() {
             maxMoveTimeMs={state.hello?.maxMoveTimeMs ?? 120_000}
           />
         )}
+        {game && (
+          <section className="rail-section" aria-label="Game review">
+            <h2 className="rail-title">Game review</h2>
+            <button type="button" className="btn btn-small" disabled={!online} onClick={() => setShowImport(true)}>
+              Analyse a game (PGN)
+            </button>
+            {state.review && !reviewing && (
+              <button type="button" className="btn btn-small" onClick={() => setReviewAt(state.review!.moves.length)}>
+                Reopen the review
+              </button>
+            )}
+          </section>
+        )}
         <button type="button" className="btn btn-quiet rail-link" onClick={() => setShowResults(true)}>
           Measured results
         </button>
       </aside>
       {showResults && <Benchmarks onClose={() => setShowResults(false)} />}
+      {showImport && <PgnImport onLoad={(pgn) => send({ type: 'load_pgn', pgn })} onClose={() => setShowImport(false)} />}
 
       {state.refusal ? (
         <main className="waiting" role="status">
@@ -459,24 +513,30 @@ export function App() {
               />
             )}
             <PlayerBar game={game} color={top} receivedAt={state.gameReceivedAt} />
-            {replay && (
+            {reviewing ? (
               <p className="replay-chip" role="status">
-                Replaying the expected line · not the game position
+                Reviewing the imported game · step with ← →
               </p>
+            ) : (
+              replay && (
+                <p className="replay-chip" role="status">
+                  Replaying the expected line · not the game position
+                </p>
+              )
             )}
             {pieceStyle === '3d' ? (
               <Suspense fallback={<div className="board-frame board-3d-loading">Loading the 3D board…</div>}>
                 <Board3D
                   game={shownGame}
                   orientation={orientation}
-                  interactive={!replay && online && game.status === 'active' && !game.engineThinking}
+                  interactive={!browsing && !reviewing && online && game.status === 'active' && !game.engineThinking}
                   thinking={thinking}
                   showHints={display.moveHints}
                   minimal={motion === 'minimal'}
                   bestMove={bestArrow}
                   onMove={(uci) => send({ type: 'make_move', uci, positionId: game.positionId })}
                   onSquareClick={
-                    analysisMode && !replay
+                    analysisMode && !browsing && !reviewing
                       ? (square) => send({ type: 'inspect_square', square, positionId: game.positionId })
                       : undefined
                   }
@@ -486,7 +546,7 @@ export function App() {
             <Board
               game={shownGame}
               orientation={orientation}
-              interactive={!replay && online && game.status === 'active' && !game.engineThinking}
+              interactive={!browsing && !reviewing && online && game.status === 'active' && !game.engineThinking}
               viz={viz}
               focus={focus}
               thinking={thinking}
@@ -495,7 +555,7 @@ export function App() {
               minimal={motion === 'minimal'}
               onMove={(uci) => send({ type: 'make_move', uci, positionId: game.positionId })}
               onSquareClick={
-                analysisMode && !replay
+                analysisMode && !browsing && !reviewing
                   ? (square) => send({ type: 'inspect_square', square, positionId: game.positionId })
                   : undefined
               }
@@ -504,7 +564,17 @@ export function App() {
             <PlayerBar game={game} color={orientation} receivedAt={state.gameReceivedAt} />
           </main>
 
-          {replay && state.line && state.explanation ? (
+          {reviewing && state.review && reviewAt !== null ? (
+            <GameReview
+              review={state.review}
+              index={reviewShown ?? 0}
+              view={reviewed}
+              active={active}
+              onHover={setHovered}
+              onStep={setReviewAt}
+              onClose={leaveReview}
+            />
+          ) : replay && state.line && state.explanation ? (
             <ReplayPanel
               view={replay}
               labels={stepLabels(state.line.steps, Number(state.line.steps[0]?.fen.split(' ')[5]) || 1)}

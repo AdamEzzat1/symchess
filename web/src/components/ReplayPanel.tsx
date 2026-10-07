@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
 import type { Highlight } from '../selectViz';
 import type { ReplayView } from '../replay';
-import { Icon } from './icons';
-import { KIND, UNKNOWN_KIND } from './ReasoningPanel';
+import { FactList } from './FactList';
 
 interface Props {
   view: ReplayView;
@@ -82,36 +81,7 @@ export function ReplayPanel({ view, labels, moveSan, active, onHover, onStep, on
           {!step.symbolic && !step.checkmate && <p className="quiet">The knowledge layer did not answer for this position.</p>}
           {step.checkmate && <p className="quiet">The game ends here, so there is nothing more to read.</p>}
           {step.symbolic && step.facts.length === 0 && <p className="quiet">Prolog sees no tactical or structural facts here.</p>}
-          <ul className="cards">
-            {step.facts.map((fact) => {
-              const look = KIND[fact.kind] ?? UNKNOWN_KIND;
-              const item = { kind: 'fact' as const, id: fact.id };
-              const on = active?.kind === 'fact' && active.id === fact.id;
-              return (
-                <li key={fact.id}>
-                  <button
-                    type="button"
-                    className={`card${on ? ' card-active' : ''}`}
-                    onMouseEnter={() => onHover(item)}
-                    onMouseLeave={() => onHover(null)}
-                    onFocus={() => onHover(item)}
-                    onBlur={() => onHover(null)}
-                  >
-                    <span className="card-icon" style={{ color: look.color }}>
-                      <Icon name={look.icon} size={22} />
-                    </span>
-                    <span className="card-main">
-                      <span className="card-head">
-                        <span className="card-title">{look.title}</span>
-                      </span>
-                      <span className="card-subject">{fact.label ?? fact.squares.join(' ')}</span>
-                      <span className="card-text">{fact.text}</span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <FactList facts={step.facts} active={active} onHover={onHover} />
           <p className="quiet">
             These are facts about a position the search expects to reach. If the opponent plays differently, it never
             arises.
