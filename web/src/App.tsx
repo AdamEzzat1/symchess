@@ -3,7 +3,7 @@ import { Benchmarks } from './components/Benchmarks';
 import { GameReview } from './components/GameReview';
 import { PgnImport } from './components/PgnImport';
 import { Board } from './components/Board';
-import { Controls, DEFAULT_DISPLAY, DisplayRail, LayerRail, PlayerBar, type DisplayOptions } from './components/GamePanel';
+import { Controls, DEFAULT_DISPLAY, OpponentRail, DisplayRail, LayerRail, PlayerBar, type DisplayOptions } from './components/GamePanel';
 import { PieceArtContext, SvgDefs } from './components/Pieces';
 import { ReasoningPanel } from './components/ReasoningPanel';
 import { ReplayPanel } from './components/ReplayPanel';
@@ -407,6 +407,15 @@ export function App() {
           )}
         </header>
 
+        {game && !analysisMode && (
+          <OpponentRail
+            game={game}
+            disabled={!online}
+            send={send}
+            maxDepth={state.hello?.maxDepth ?? 30}
+            maxMoveTimeMs={state.hello?.maxMoveTimeMs ?? 120_000}
+          />
+        )}
         {game && (analysisMode || browsing) && <LayerRail enabled={layers} counts={counts} onToggle={toggleLayer} />}
         {game && (
           <section className="rail-section" aria-label="Piece style">

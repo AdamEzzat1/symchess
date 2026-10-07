@@ -257,6 +257,41 @@ interface ControlsProps {
   maxMoveTimeMs: number;
 }
 
+type OpponentProps = Pick<ControlsProps, 'game' | 'disabled' | 'send' | 'maxDepth' | 'maxMoveTimeMs'>;
+
+/** Who you are playing: the engine's level, in plain sight. It takes effect from the engine's next move. */
+export function OpponentRail({ game, disabled, send, maxDepth, maxMoveTimeMs }: OpponentProps) {
+  const { settings } = game;
+  const current = settings.level ?? 'club';
+  return (
+    <section className="rail-section" aria-label="Opponent">
+      <h2 className="rail-title">Opponent</h2>
+      <div className="mode-switch mode-switch-4" role="group" aria-label="Opponent level">
+        {LEVELS.map((l) => (
+          <button
+            key={l.id}
+            type="button"
+            className={`btn-toggle${current === l.id ? ' btn-toggle-on' : ''}`}
+            aria-pressed={current === l.id}
+            title={l.blurb}
+            disabled={disabled}
+            onClick={() => send({ type: 'set_level', level: l.id })}
+          >
+            {l.label}
+          </button>
+        ))}
+      </div>
+      <p className="field-hint">{LEVELS.find((l) => l.id === current)?.blurb}</p>
+      {/* What the level comes to on this server, in the engine's own numbers. */}
+      <p className="field-hint">
+        Here it searches to depth {settings.depth} or for {(settings.moveTimeMs / 1000).toFixed(1)} s a move, whichever
+        comes first.
+        {maxDepth < 30 && ` This server stops every level at depth ${maxDepth} and ${(maxMoveTimeMs / 1000).toFixed(0)} s, so Expert plays much like Club here.`}
+      </p>
+    </section>
+  );
+}
+
 export function Controls({ game, disabled, onFlip, send, maxDepth, maxMoveTimeMs }: ControlsProps) {
   const { settings, clocks } = game;
   const [side, setSide] = useState<Color>(settings.humanColor);
@@ -299,27 +334,6 @@ export function Controls({ game, disabled, onFlip, send, maxDepth, maxMoveTimeMs
           ))}
         </select>
       </label>
-      <label className="field">
-        <span>Level</span>
-        <select
-          value={settings.level ?? 'club'}
-          onChange={(e) => send({ type: 'set_level', level: e.target.value as Level })}
-          disabled={disabled}
-        >
-          {LEVELS.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p className="field-hint">{LEVELS.find((l) => l.id === (settings.level ?? 'club'))?.blurb}</p>
-      {/* What the level comes to on this server, in the engine's own numbers. */}
-      <p className="field-hint">
-        Here it searches to depth {settings.depth} or for {(settings.moveTimeMs / 1000).toFixed(1)} s a move, whichever
-        comes first.
-        {maxDepth < 30 && ` This server stops every level at depth ${maxDepth} and ${(maxMoveTimeMs / 1000).toFixed(0)} s, so Expert plays much like Club here.`}
-      </p>
       <label className="field">
         <span>Depth</span>
         <select

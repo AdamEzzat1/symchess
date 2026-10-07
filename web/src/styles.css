@@ -613,6 +613,16 @@ select,
 .mode-switch-3 {
   grid-template-columns: 1fr 1fr 1fr;
 }
+.mode-switch-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+.mode-switch-4 .btn-toggle {
+  padding: 6px 2px;
+  font-size: 0.86rem;
+}
+.mode-switch + .field-hint {
+  margin-top: 8px;
+}
 
 /* A taken piece is only ever seen breaking; without motion it is not shown. */
 .piece-taken,
