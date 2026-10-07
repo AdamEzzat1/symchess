@@ -36,6 +36,9 @@ export type GameStatus =
 
 export type Mode = 'play' | 'analysis';
 
+/** How strongly the engine plays its own moves. The engine owns what each level means. */
+export type Level = 'novice' | 'club' | 'expert';
+
 export interface GameState {
   type: 'game_state';
   seq: number;
@@ -57,7 +60,7 @@ export interface GameState {
     incrementMs: number;
     running: Color | null;
   };
-  settings: { mode: Mode; humanColor: Color; depth: number; moveTimeMs: number };
+  settings: { mode: Mode; humanColor: Color; level?: Level; depth: number; moveTimeMs: number };
   captured: { white: string[]; black: string[] };
   engineThinking: boolean;
 }
@@ -155,6 +158,8 @@ export type ServerMessage =
       maxPlayers?: number;
       maxDepth?: number;
       maxMoveTimeMs?: number;
+      /** What each level's depth and time come to on this server. */
+      levels?: { id: Level; depth: number; moveTimeMs: number }[];
     }
   | GameState
   | {
@@ -228,6 +233,7 @@ export type ClientCommand =
   | { type: 'request_analysis'; positionId: number }
   | { type: 'stop_search' }
   | { type: 'set_engine_depth'; depth?: number; moveTimeMs?: number }
+  | { type: 'set_level'; level: Level }
   | { type: 'set_time_control'; baseMs: number | null; incrementMs?: number }
   | { type: 'set_mode'; mode: Mode; humanColor?: Color }
   | { type: 'inspect_square'; square: Square; positionId: number }

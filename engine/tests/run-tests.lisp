@@ -169,6 +169,61 @@
                 (= (jget b "total") (evaluate p))))
          t))
 
+(section "difficulty levels")
+(let ((novice (find-level "novice")))
+  (labels ((novice-moves (fen trials)
+             ;; Every distinct move Novice chooses over TRIALS choices.
+             (let ((p (pos-from-fen fen))
+                   (state (sb-ext:seed-random-state 7))
+                   (moves '()))
+               (apply-level-features novice)
+               (tt-clear)
+               (let ((r (search-position p :max-depth (level-depth novice))))
+                 (dotimes (i trials)
+                   (pushnew (choose-level-move p r novice state) moves)))
+               (set-engine-features)
+               moves))
+           (uci-list (moves) (sort (mapcar #'move-uci moves) #'string<))
+           (gives-material-away-p (fen move)
+             ;; After MOVE, can the opponent win a minor piece or more at once?
+             (let ((p (pos-from-fen fen)))
+               (make-move p move)
+               (some (lambda (reply) (and (move-capture-p reply) (>= (see p reply) 300)))
+                     (legal-moves p)))))
+    (check "novice varies its first move"
+           (> (length (novice-moves +start-fen+ 40)) 1) t)
+    (check "novice never passes up a mate in one"
+           (uci-list (novice-moves "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1" 40)) '("a1a8"))
+    (check "novice takes a free queen, nothing else comes close"
+           (uci-list (novice-moves "4k3/8/8/3q4/8/8/3R4/4K3 w - - 0 1" 40)) '("d2d5"))
+    (let ((fen "4k3/8/2p5/3p4/4Q3/8/8/4K3 w - - 0 1")) ; the queen is attacked by a pawn
+      (check "novice never leaves a piece to be taken next move"
+             (notany (lambda (m) (gives-material-away-p fen m)) (novice-moves fen 60)) t))
+    (let ((fen "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1"))
+      (check "novice gives nothing away in an ordinary opening position"
+             (notany (lambda (m) (gives-material-away-p fen m)) (novice-moves fen 60)) t))))
+(check "club and expert always play the search's best move"
+       (let* ((p (pos-from-fen +start-fen+))
+              (r (progn (tt-clear) (search-position p :max-depth 4))))
+         (list (multiple-value-list (choose-level-move p r (find-level "club")))
+               (multiple-value-list (choose-level-move p r (find-level "expert")))))
+       (let* ((p (pos-from-fen +start-fen+))
+              (best (search-result-best-move (progn (tt-clear) (search-position p :max-depth 4)))))
+         (list (list best t) (list best t))))
+(check "a level's depth and time respect the server's ceilings"
+       (let ((g (make-game)) (*max-depth* 7) (*max-move-time-ms* 1500))
+         (set-game-level g (find-level "expert"))
+         (list (game-level g) (game-depth g) (game-move-time-ms g)))
+       '("expert" 7 1500))
+(check "the explanation is about the move played, not the one passed over"
+       (let* ((p (pos-from-fen +start-fen+))
+              (r (progn (tt-clear) (search-position p :max-depth 3)))
+              (other (find (search-result-best-move r) (legal-moves p) :test #'/=))
+              (fields (build-explanation p (search-line p other 3) nil :play "the note")))
+         (list (string= (jget (getf-string fields "move") "uci") (move-uci other))
+               (jget (first (getf-string fields "items")) "text")))
+       '(t "the note"))
+
 (section "search")
 (flet ((best (fen depth)
          (tt-clear)

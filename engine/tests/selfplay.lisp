@@ -9,7 +9,8 @@
 ;;;;
 ;;;; Configurations: "new" (everything on), "old" (the first engine), or one
 ;;;; feature name (activity, see, lmr, aspiration, delta) for that feature
-;;;; alone, or "no-" and a feature name for everything except it.
+;;;; alone, or "no-" and a feature name for everything except it. The
+;;;; difficulty levels "novice", "club" and "expert" can also be named.
 
 (require :asdf)
 (asdf:load-asd (merge-pathnames "../symchess.asd" *load-truename*))
@@ -71,11 +72,26 @@
     (loop
       (let ((result (outcome p)))
         (when result (return result)))
-      (configure (if (= (pos-side p) 1) white black))
-      ;; The table holds scores from the other side's evaluation: start clean.
-      (tt-clear)
-      (let ((move (search-result-best-move (search-position p :max-depth 40 :time-ms ms))))
-        (make-move p move)))))
+      (let* ((name (if (= (pos-side p) 1) white black))
+             (level (find-level name)))
+        ;; The table holds scores from the other side's evaluation: start clean.
+        (tt-clear)
+        (make-move
+         p
+         (if level
+             ;; A difficulty level plays exactly as it does in a real game:
+             ;; its own depth, its own features, its own choice of move.
+             ;; Only Expert is on the clock.
+             (progn
+               (apply-level-features level)
+               (choose-level-move
+                p
+                (search-position p :max-depth (level-depth level)
+                                   :time-ms (and (string= name "expert") ms))
+                level))
+             (progn
+               (configure name)
+               (search-result-best-move (search-position p :max-depth 40 :time-ms ms)))))))))
 
 (let* ((args (let ((tail (member-if (lambda (a) (search "selfplay" a)) sb-ext:*posix-argv*)))
                (if tail (rest tail) (rest sb-ext:*posix-argv*))))

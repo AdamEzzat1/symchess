@@ -192,8 +192,26 @@ send({ type: 'make_move', uci: 'd2d4', positionId: game.positionId });
 check('moves after the game is over are refused', (await until(ofType('error'), 'game over error')).code === 'game_over');
 send({ type: 'set_time_control', baseMs: null });
 
+console.log('difficulty levels');
+check('hello lists the three levels', Array.isArray(hello.levels) && hello.levels.map((l) => l.id).join() === 'novice,club,expert');
+send({ type: 'set_level', level: 'grandmaster' });
+check('an unknown level is refused', (await until(ofType('error'), 'bad level')).code === 'bad_request');
+send({ type: 'set_level', level: 'novice' });
+game = await until((m) => m.type === 'game_state' && m.settings.level === 'novice', 'novice level');
+check('choosing a level sets its depth', game.settings.depth === hello.levels[0].depth);
+const beforeLevel = game.positionId;
+send({ type: 'new_game', humanColor: 'white', mode: 'play' });
+game = await until((m) => m.type === 'game_state' && m.positionId > beforeLevel, 'novice game');
+check('a new game keeps the level', game.settings.level === 'novice');
+send({ type: 'make_move', uci: 'e2e4', positionId: game.positionId });
+const noviceExplanation = await until(ofType('explanation'), 'novice explanation');
+const noviceMove = await until((m) => m.type === 'move_played' && m.move.by === 'engine', 'novice reply');
+check('the explanation opens by naming the level', noviceExplanation.items[0].text.startsWith('Novice level'));
+check('the explanation is about the move the engine actually played', noviceExplanation.move.uci === noviceMove.move.uci);
+await until((m) => m.type === 'game_state' && m.history.length === 2, 'state after novice reply');
+
 // leave the engine in a clean default state for the UI
-send({ type: 'set_engine_depth', depth: 6, moveTimeMs: 3000 });
+send({ type: 'set_level', level: 'club' });
 send({ type: 'new_game', humanColor: 'white', mode: 'play' });
 await until((m) => m.type === 'game_state' && m.settings.mode === 'play' && m.history.length === 0, 'reset');
 

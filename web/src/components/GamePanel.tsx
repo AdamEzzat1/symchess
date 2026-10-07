@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatClock } from '../geometry';
-import type { ClientCommand, Color, GameState } from '../protocol';
+import type { ClientCommand, Color, GameState, Level } from '../protocol';
 import { LAYERS, type LayerId } from '../selectViz';
 import { styleSpec } from './Overlays';
 import { Icon, type IconName } from './icons';
@@ -25,6 +25,13 @@ interface PlayerBarProps {
   receivedAt: number;
 }
 
+/** Names for the engine's levels. What a level does is decided by the engine. */
+export const LEVELS: { id: Level; label: string; blurb: string }[] = [
+  { id: 'novice', label: 'Novice', blurb: 'Looks a short way ahead and does not always find the best move. Never gives a piece away for nothing.' },
+  { id: 'club', label: 'Club', blurb: 'A steady opponent: punishes loose pieces, can miss long plans.' },
+  { id: 'expert', label: 'Expert', blurb: 'Plays to win: searches as deep as its time allows.' },
+];
+
 export function PlayerBar({ game, color, receivedAt }: PlayerBarProps) {
   const { clocks, settings } = game;
   const running = clocks.running === color;
@@ -36,7 +43,9 @@ export function PlayerBar({ game, color, receivedAt }: PlayerBarProps) {
 
   const isEngine = settings.mode === 'play' && settings.humanColor !== color;
   const side = color === 'white' ? 'White' : 'Black';
-  const name = settings.mode === 'analysis' ? side : isEngine ? 'SymChess' : 'You';
+  const level = LEVELS.find((l) => l.id === settings.level);
+  const name =
+    settings.mode === 'analysis' ? side : isEngine ? `SymChess${level ? ` · ${level.label}` : ''}` : 'You';
   const captured = [...game.captured[color]].sort(
     (a, b) => CAPTURE_ORDER.indexOf(a) - CAPTURE_ORDER.indexOf(b),
   );
@@ -289,6 +298,21 @@ export function Controls({ game, disabled, onFlip, send, maxDepth, maxMoveTimeMs
           ))}
         </select>
       </label>
+      <label className="field">
+        <span>Level</span>
+        <select
+          value={settings.level ?? 'club'}
+          onChange={(e) => send({ type: 'set_level', level: e.target.value as Level })}
+          disabled={disabled}
+        >
+          {LEVELS.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="field-hint">{LEVELS.find((l) => l.id === (settings.level ?? 'club'))?.blurb}</p>
       <label className="field">
         <span>Depth</span>
         <select

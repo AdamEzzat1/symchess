@@ -432,6 +432,12 @@ select,
   font-size: 0.74rem;
   color: var(--muted);
 }
+.field-hint {
+  margin: -2px 0 2px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
 .control-actions {
   display: flex;
   gap: 6px;

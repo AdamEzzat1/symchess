@@ -163,7 +163,14 @@
                         "players" (session-count)
                         "maxPlayers" *max-sessions*
                         "maxDepth" *max-depth*
-                        "maxMoveTimeMs" *max-move-time-ms*)
+                        "maxMoveTimeMs" *max-move-time-ms*
+                        ;; What each level means on this server, after its ceilings.
+                        "levels" (mapcar (lambda (level)
+                                           (obj "id" (level-name level)
+                                                "depth" (min (level-depth level) *max-depth*)
+                                                "moveTimeMs" (min (level-time-ms level)
+                                                                  *max-move-time-ms*)))
+                                         *levels*))
              (with-state
                (setf (game-move-time-ms game) (min (game-move-time-ms game) *max-move-time-ms*)
                      (game-depth game) (min (game-depth game) *max-depth*))

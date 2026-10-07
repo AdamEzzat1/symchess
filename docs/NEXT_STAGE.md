@@ -282,3 +282,29 @@ All figures below are *(measured)* on one desktop, with other programs running.
 **Not done from the milestone list:** a dedicated tactical test suite (self-play and the existing tactical checks were used instead), transposition-table ageing, and draw awareness for trivial endings.
 
 **A side effect to know about:** root ordering hints from Prolog used to change only the node count. With late move reductions, move order also decides which moves are searched less deeply, so hints can now occasionally change the score at a fixed depth. The benchmark's wording was updated to say so.
+
+## Milestone 2: results
+
+Built: a `level` setting owned by the engine (`novice`, `club`, `expert`), a `set_level` command, the level in every `game_state`, and the levels' depth and time on this server in `hello`. The frontend only names them.
+
+| Level | Search | Evaluation | Move choice |
+| --- | --- | --- | --- |
+| Novice | 3 plies | Material and piece placement only (the first engine) | Any move it scores within 0.6 pawns of its best |
+| Club | 6 plies | Full | Best move |
+| Expert | As deep as 3 seconds allow | Full | Best move |
+
+Analysis always runs at full strength; the level only governs the engine's own moves.
+
+**Novice's guards hold by construction**: every move it may pick has been searched to its full depth and found close to the best, so it cannot pick a move that loses a piece to the reply, and a forced mate is never traded for variety. Tests check both, and that it does vary its moves.
+
+**The explanation follows the move played.** When Novice plays something other than its top choice, the explanation is rebuilt from a search of the position that move leads to, and opens by saying which move was passed over.
+
+**Ladder** *(measured, 12 openings with both colours; Expert given 300 ms per move, a tenth of its real allowance)*:
+
+| Match | Games | Wins | Draws | Losses | Points |
+| --- | --- | --- | --- | --- | --- |
+| Club against Novice | 24 | 24 | 0 | 0 | 100% |
+| Expert against Novice | 24 | 24 | 0 | 0 | 100% |
+| Expert against Club | 48 | 25 | 16 | 7 | 68.8% |
+
+**Two honest limits.** The gap from Novice to Club is very large, and there is nothing in between; a fourth level may be wanted. And on the hosted site, where depth is capped at 7, Expert is only one ply deeper than Club, so the two will play much alike there.

@@ -485,3 +485,30 @@ Returns the result of the last fully completed iteration."
     (setf (search-result-nodes result) (sctx-nodes ctx)
           (search-result-time-ms result) (- (now-ms) start))
     result))
+
+(defun root-move-scores (p depth)
+  "Every legal move of P with the score a DEPTH-ply search gives it, from the
+mover's point of view, best first. Each move gets a full window, so the scores
+are exact and comparable, which the ordinary search's scores for non-best
+moves are not."
+  (let ((p (copy-position p))
+        (ctx (make-sctx))
+        (scored '()))
+    (dolist (m (legal-moves p))
+      (make-move p m)
+      (push (cons m (- (the fixnum (negamax p ctx (1- depth) (- +inf+) +inf+ 1 t)))) scored)
+      (unmake-move p))
+    (stable-sort (nreverse scored) #'> :key #'cdr)))
+
+(defun search-line (p move depth)
+  "A SEARCH-RESULT describing MOVE as if it had been the choice: its score and
+the line expected to follow it, from a search of the position it leads to."
+  (let ((child (copy-position p)))
+    (make-move child move)
+    (let ((r (search-position child :max-depth (max 1 (1- depth)))))
+      (make-search-result :best-move move
+                          :score (- (search-result-score r))
+                          :depth (1+ (search-result-depth r))
+                          :nodes (search-result-nodes r)
+                          :time-ms (search-result-time-ms r)
+                          :pv (cons move (search-result-pv r))))))

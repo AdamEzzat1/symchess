@@ -43,6 +43,73 @@
 (defmacro with-state (&body body)
   `(sb-thread:with-recursive-lock ((game-lock *game*)) ,@body))
 
+;;; ------------------------------------------------------------- difficulty
+;;; A level is a real configuration of the engine, not a strong engine told to
+;;; blunder. Novice is weak the way a weak player is weak: it looks a short
+;;; way ahead, judges positions crudely, and does not always pick the best of
+;;; the moves it thinks are reasonable. It still never gives a piece away to a
+;;; one-move reply and never passes up a mate it has seen, because every move
+;;; it may pick has been searched and found close to the best.
+
+(defstruct level
+  name
+  depth          ; search depth, before the server's ceiling
+  time-ms        ; thinking time per move, before the server's ceiling
+  full           ; T: the whole evaluation and search. NIL: the first engine.
+  margin)        ; centipawns below the best move that it may still choose
+
+(defparameter *levels*
+  (list (make-level :name "novice" :depth 3 :time-ms 1000 :full nil :margin 60)
+        (make-level :name "club" :depth 6 :time-ms 2000 :full t :margin 0)
+        ;; Expert searches as deep as its time allows.
+        (make-level :name "expert" :depth 30 :time-ms 3000 :full t :margin 0)))
+
+(defun find-level (name)
+  (find name *levels* :key #'level-name :test #'equal))
+
+(defun apply-level-features (level)
+  (if (level-full level)
+      (set-engine-features)
+      (set-engine-features :activity nil :see nil :lmr nil :aspiration nil :delta nil)))
+
+;; Seeded from the clock, so two games at Novice do not go the same way.
+(defvar *level-random* (make-random-state t))
+
+(defun choose-level-move (p result level &optional (state *level-random*))
+  "The move a LEVEL engine plays given its search RESULT. Second value: true if
+it is the search's best move. Must run with LEVEL's features switched on."
+  (let ((best (search-result-best-move result))
+        (margin (level-margin level)))
+    (if (or (zerop margin)
+            ;; A forced mate, for or against, is never traded for variety.
+            (> (abs (search-result-score result)) +mate-bound+))
+        (values best t)
+        (let* ((scored (root-move-scores p (max 1 (search-result-depth result))))
+               (top (cdr (first scored))))
+          (if (> (abs top) +mate-bound+)
+              (values (car (first scored)) t)
+              (let* ((candidates (remove-if (lambda (entry) (< (cdr entry) (- top margin)))
+                                            scored))
+                     (pick (car (nth (random (length candidates) state) candidates))))
+                (values pick (= pick best))))))))
+
+(defun level-note (p level result chosen best-p)
+  "One plain sentence saying what this level did, for the explanation."
+  (let ((name (level-name level)))
+    (cond ((string= name "novice")
+           (if best-p
+               (format nil "Novice level: a ~D-ply search with a simple evaluation (material and piece placement only)."
+                       (search-result-depth result))
+               (format nil "Novice level: played ~A rather than its top choice ~A. At this level it picks among the moves it scores within ~,1F pawns of its best, never one that loses material to the next move."
+                       (move-san p chosen) (move-san p (search-result-best-move result))
+                       (/ (level-margin level) 100.0))))
+          ((string= name "club")
+           (format nil "Club level: a ~D-ply search with the full evaluation."
+                   (search-result-depth result)))
+          (t
+           (format nil "Expert level: searched as deep as the time allowed, reaching ~D plies."
+                   (search-result-depth result))))))
+
 (defstruct client
   stream socket
   (write-lock (sb-thread:make-mutex :name "client-write")))
@@ -54,8 +121,9 @@
   (position-id 1)
   (mode "play")                         ; "play" | "analysis"
   (human-color "white")
+  (level "club")                        ; "novice" | "club" | "expert"
   (depth 6)
-  (move-time-ms 3000)
+  (move-time-ms 2000)
   (status "active")
   (winner nil)
   (tc-base-ms nil)                      ; NIL = untimed
@@ -225,6 +293,7 @@ notices the closed socket and ends the session."
                                       :null))
           "settings" (obj "mode" (game-mode g)
                           "humanColor" (game-human-color g)
+                          "level" (game-level g)
                           "depth" (game-depth g)
                           "moveTimeMs" (game-move-time-ms g))
           ;; Pieces each side has captured, as piece letters of the lost pieces.
@@ -307,7 +376,7 @@ notices the closed socket and ends the session."
       (unless (make-move p m) (return)))
     (* side (- (material-balance p) before))))
 
-(defun build-explanation (p result analysis &optional (purpose :play))
+(defun build-explanation (p result analysis &optional (purpose :play) note)
   (let* ((best (search-result-best-move result))
          (legal (legal-moves p))
          (san (move-san p best legal))
@@ -317,6 +386,7 @@ notices the closed socket and ends the session."
          (swing (pv-material-swing p pv))
          (items '()))
     (flet ((add (&rest args) (push (apply #'explanation-item args) items)))
+      (when note (add "search" "measured" note))
       (add "search" "measured"
            (format nil "Searched ~D plies deep (~:D positions, ~,1F s). ~A scores ~A (White's view)."
                    (search-result-depth result) (search-result-nodes result)
@@ -335,9 +405,10 @@ notices the closed socket and ends the session."
                           mover (/ (- swing) 100.0)))))
       (let ((terms (eval-breakdown p)))
         (add "eval" "measured"
-             (format nil "Static evaluation before the move, White's view: material ~@D, piece placement ~@D, pawn structure ~@D, bishop pair ~@D (centipawns)."
+             (format nil "Static evaluation before the move, White's view: material ~@D, piece placement ~@D, pawn structure ~@D, bishop pair ~@D, piece activity ~@D, king safety ~@D (centipawns)."
                      (jget terms "material") (jget terms "placement")
-                     (jget terms "pawnStructure") (jget terms "bishopPair"))))
+                     (jget terms "pawnStructure") (jget terms "bishopPair")
+                     (jget terms "activity") (jget terms "kingSafety"))))
       (if (null analysis)
           (add "prolog" "heuristic"
                "The Prolog knowledge layer was unavailable, so this explanation is search-only.")
@@ -468,20 +539,41 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                "purpose" (if (eq purpose :play) "play" "analysis")
                "maxDepth" depth "timeLimitMs" time-ms
                "symbolicHints" (jbool analysis))
-    (let ((result
-            ;; Searches from all sessions take turns; the time limit starts
-            ;; when this one actually begins.
-            (sb-thread:with-mutex (*search-lock*)
-              (when (cancelled-p flag) (return-from run-search nil))
-              (search-position p :max-depth depth :time-ms time-ms
-                                 :stop-fn (lambda () (car flag))
-                                 :hints (symbolic-hints p analysis)
-                                 :on-iteration
-                                 (lambda (r)
-                                   (unless (cancelled-p flag)
-                                     (apply #'broadcast "search_update"
-                                            "positionId" pid "searchId" sid
-                                            (search-info-fields p r))))))))
+    (let* ((level (or (find-level (game-level g)) (find-level "club")))
+           (played nil)                 ; the result that describes the move played
+           (note nil)
+           (terms nil)
+           (result
+             ;; Searches from all sessions take turns; the time limit starts
+             ;; when this one actually begins. The feature switches are global,
+             ;; so everything that depends on them happens inside the lock.
+             (sb-thread:with-mutex (*search-lock*)
+               (when (cancelled-p flag) (return-from run-search nil))
+               ;; The level decides how the engine plays. Analysis is always
+               ;; the engine's full strength.
+               (if (eq purpose :play) (apply-level-features level) (set-engine-features))
+               (unwind-protect
+                    (let ((r (search-position p :max-depth depth :time-ms time-ms
+                                                :stop-fn (lambda () (car flag))
+                                                :hints (symbolic-hints p analysis)
+                                                :on-iteration
+                                                (lambda (r)
+                                                  (unless (cancelled-p flag)
+                                                    (apply #'broadcast "search_update"
+                                                           "positionId" pid "searchId" sid
+                                                           (search-info-fields p r)))))))
+                      (setf played r
+                            terms (eval-breakdown p))
+                      (when (and (eq purpose :play) (search-result-best-move r)
+                                 (not (cancelled-p flag)))
+                        (multiple-value-bind (move best-p) (choose-level-move p r level)
+                          (setf note (level-note p level r move best-p))
+                          ;; If it plays something other than its best, the
+                          ;; explanation must be about the move it plays.
+                          (unless best-p
+                            (setf played (search-line p move (search-result-depth r))))))
+                      r)
+                 (set-engine-features)))))
       (with-state
         ;; Stale-result guard: the game may have moved on while we searched.
         (when (or (cancelled-p flag) (/= pid (game-position-id g))
@@ -491,13 +583,13 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                "positionId" pid "searchId" sid
                "purpose" (if (eq purpose :play) "play" "analysis")
                "stopped" (jbool (eq (car flag) :finish))
-               "evalBreakdown" (eval-breakdown p)
+               "evalBreakdown" terms
                (search-info-fields p result))
         (apply #'broadcast "explanation" "positionId" pid "searchId" sid
-               (build-explanation p result analysis purpose))
+               (build-explanation p played analysis purpose note))
         (when (eq purpose :play)
           (setf (game-thinking g) nil)
-          (when (apply-move g (search-result-best-move result) "engine")
+          (when (apply-move g (search-result-best-move played) "engine")
             (after-state-change g)))))))
 
 (defun run-symbolic (g p pid flag)
@@ -631,6 +723,19 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
     (protocol-error "engine_busy" "The engine is choosing its move."))
   (start-worker g :analysis))
 
+(defun set-game-level (g level)
+  "Adopt LEVEL and its depth and time, within the server's ceilings."
+  (setf (game-level g) (level-name level)
+        (game-depth g) (min (level-depth level) *max-depth*)
+        (game-move-time-ms g) (min (level-time-ms level) *max-move-time-ms*)))
+
+(defun cmd-set-level (g msg)
+  (let ((level (find-level (jget msg "level"))))
+    (unless level
+      (protocol-error "bad_request" "level must be novice, club or expert."))
+    (set-game-level g level)
+    (broadcast-game-state g)))
+
 (defun cmd-set-engine-depth (g msg)
   (let ((depth (jget msg "depth"))
         (time-ms (jget msg "moveTimeMs")))
@@ -728,6 +833,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                     ((string= type "request_analysis") (cmd-request-analysis g msg))
                     ((string= type "stop_search") (finish-worker g))
                     ((string= type "set_engine_depth") (cmd-set-engine-depth g msg))
+                    ((string= type "set_level") (cmd-set-level g msg))
                     ((string= type "set_time_control") (cmd-set-time-control g msg))
                     ((string= type "set_mode") (cmd-set-mode g msg))
                     ((string= type "inspect_square") (cmd-inspect-square g msg))

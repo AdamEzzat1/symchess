@@ -46,6 +46,16 @@ Open http://localhost:5173. The page reconnects by itself if the engine is
 restarted. If Prolog cannot be started the engine still plays, on search alone,
 and the UI says so.
 
+## Difficulty
+
+The engine plays at one of three levels, chosen under **Game** in the left rail. A level is a real engine configuration, not a strong engine told to blunder.
+
+- **Novice**: a 3-ply search with a simple evaluation; picks among the moves it scores close to its best. It never gives a piece away to the next move and never passes up a mate it has seen.
+- **Club**: a 6-ply search with the full evaluation.
+- **Expert**: searches as deep as its time allows.
+
+Analysis always runs at full strength.
+
 ## Piece styles
 
 The **Pieces** switch in the left rail changes how the game is drawn. It is presentation only; the engine never hears of it.
