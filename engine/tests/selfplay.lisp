@@ -10,7 +10,9 @@
 ;;;; Configurations: "new" (everything on), "old" (the first engine), or one
 ;;;; feature name (activity, see, lmr, aspiration, delta) for that feature
 ;;;; alone, or "no-" and a feature name for everything except it. The
-;;;; difficulty levels "novice", "club" and "expert" can also be named.
+;;;; difficulty levels "novice", "club" and "expert" can also be named, and
+;;;; "hints": the full engine with Prolog's root ordering hints, where the
+;;;; time Prolog takes comes out of the same per-move allowance.
 
 (require :asdf)
 (asdf:load-asd (merge-pathnames "../symchess.asd" *load-truename*))
@@ -89,9 +91,18 @@
                 (search-position p :max-depth (level-depth level)
                                    :time-ms (and (string= name "expert") ms))
                 level))
-             (progn
-               (configure name)
-               (search-result-best-move (search-position p :max-depth 40 :time-ms ms)))))))))
+             (if (string= name "hints")
+                 ;; Is Prolog's advice worth the time it takes to ask for it?
+                 (let* ((started (now-ms))
+                        (analysis (progn (set-engine-features) (symbolic-analysis p)))
+                        (hints (symbolic-hints p analysis))
+                        (left (max 10 (- ms (- (now-ms) started)))))
+                   (search-result-best-move
+                    (search-position p :max-depth 40 :time-ms left :hints hints)))
+                 (progn
+                   (configure name)
+                   (search-result-best-move
+                    (search-position p :max-depth 40 :time-ms ms))))))))))
 
 (let* ((args (let ((tail (member-if (lambda (a) (search "selfplay" a)) sb-ext:*posix-argv*)))
                (if tail (rest tail) (rest sb-ext:*posix-argv*))))
@@ -122,3 +133,4 @@
             candidate wins draws losses
             (* 100.0 (/ (+ wins (/ draws 2)) games)))))
 (set-engine-features)
+(stop-prolog)

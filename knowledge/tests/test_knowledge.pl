@@ -162,6 +162,50 @@ test(overloaded_defender, [nondet]) :-
     overloaded(Ctx, overloaded(black, queen, D8, Guarded)),
     length(Guarded, 2).
 
+test(battery_of_doubled_rooks, [nondet]) :-
+    ctx("3r2k1/5ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1", Ctx),
+    sq(d1, D1), sq(d2, D2), sq(d8, D8),
+    battery(Ctx, battery(white, rook, D2, rook, D1, rook, D8)).
+
+test(no_battery_without_a_target) :-
+    % queen and rook stand side by side on both back ranks, aiming at nothing
+    ctx("r2q1rk1/pp2bppp/2n1pn2/3p4/3P1B2/2PBPN2/PP3PPP/RN1Q1RK1 w - - 0 9", Ctx),
+    \+ battery(Ctx, _).
+
+test(discovered_attack_behind_a_knight, [nondet]) :-
+    ctx("4k3/4q3/8/8/4N3/8/8/4R1K1 w - - 0 1", Ctx),
+    sq(e4, E4), sq(e1, E1), sq(e7, E7),
+    discovered_attack(Ctx, discovered_attack(white, knight, E4, rook, E1, queen, E7)).
+
+test(no_discovered_attack_behind_a_pawn_on_its_file) :-
+    % the pawn can only go forward, which keeps the file closed
+    ctx("4k3/4q3/8/8/4P3/8/8/4R1K1 w - - 0 1", Ctx),
+    \+ discovered_attack(Ctx, _).
+
+test(pinned_defender, [nondet]) :-
+    % the d2 knight is pinned by the a5 bishop and alone guards the f3 bishop
+    ctx("4kr2/8/8/b7/8/5B2/3N4/4K3 b - - 0 1", Ctx),
+    sq(d2, D2), sq(f3, F3),
+    pinned_defender(Ctx, pinned_defender(white, knight, D2, bishop, F3)).
+
+test(no_pinned_defender_when_another_piece_also_defends) :-
+    ctx("4kr2/8/8/b7/8/5B2/3N2P1/4K3 b - - 0 1", Ctx),
+    \+ pinned_defender(Ctx, _).
+
+test(trapped_knight_in_the_corner, [nondet]) :-
+    ctx("N7/pk6/8/8/8/8/8/4K3 w - - 0 1", Ctx),
+    sq(a8, A8),
+    trapped(Ctx, trapped(white, knight, A8, _, _)).
+
+test(attacked_piece_with_a_safe_square_is_not_trapped) :-
+    ctx("4k3/8/8/8/3p4/2N5/8/4K3 w - - 0 1", Ctx),
+    \+ trapped(Ctx, _).
+
+test(unattacked_piece_is_not_trapped) :-
+    % the a1 bishop cannot move, but nothing attacks it
+    ctx("4k3/8/8/8/8/1p6/P1p5/BK6 b - - 0 1", Ctx),
+    \+ trapped(Ctx, _).
+
 :- end_tests(tactics).
 
 % ----------------------------------------------------------------- structure
@@ -211,6 +255,82 @@ test(king_shield_missing, [nondet]) :-
 test(intact_king_shield_is_silent) :-
     ctx("4k3/8/8/8/8/8/5PPP/6K1 w - - 0 1", Ctx),
     \+ king_shield(Ctx, king_shield(white, _, _)).
+
+test(weak_back_rank, [nondet]) :-
+    ctx("6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", Ctx),
+    sq(g8, G8),
+    weak_back_rank(Ctx, weak_back_rank(black, G8)).
+
+test(back_rank_guarded_by_a_rook_is_not_weak) :-
+    ctx("6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", Ctx),
+    \+ weak_back_rank(Ctx, weak_back_rank(white, _)).
+
+test(no_weak_back_rank_in_the_start_position) :-
+    ctx("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", Ctx),
+    \+ weak_back_rank(Ctx, _).
+
+test(knight_on_an_outpost, [nondet]) :-
+    ctx("4k3/pp3ppp/8/3N4/4P3/8/8/4K3 w - - 0 1", Ctx),
+    sq(d5, D5), sq(e4, E4),
+    outpost_piece(Ctx, outpost_piece(white, knight, D5, E4)).
+
+test(no_outpost_while_a_pawn_can_still_chase_the_knight) :-
+    ctx("4k3/ppp2ppp/8/3N4/4P3/8/8/4K3 w - - 0 1", Ctx),
+    \+ outpost_piece(Ctx, _).
+
+test(backward_pawn, [nondet]) :-
+    ctx("4k3/8/8/4p3/2P1P3/3P4/8/4K3 w - - 0 1", Ctx),
+    sq(d3, D3),
+    backward_pawn(Ctx, backward_pawn(white, D3)).
+
+test(pawn_with_a_neighbour_beside_it_is_not_backward) :-
+    ctx("4k3/8/8/4p3/4P3/2PP4/8/4K3 w - - 0 1", Ctx),
+    \+ backward_pawn(Ctx, backward_pawn(white, _)).
+
+test(rook_on_the_seventh, [nondet]) :-
+    ctx("8/5pk1/6p1/8/3R4/6P1/r4PK1/8 w - - 0 1", Ctx),
+    sq(a2, A2),
+    rook_on_seventh(Ctx, rook_on_seventh(black, A2)).
+
+test(rook_on_the_seventh_with_nothing_to_do_there) :-
+    ctx("8/R7/4k3/8/8/8/8/4K3 w - - 0 1", Ctx),
+    \+ rook_on_seventh(Ctx, _).
+
+test(pawn_majority, [nondet]) :-
+    ctx("4k3/pp6/8/8/8/8/PPP5/4K3 w - - 0 1", Ctx),
+    pawn_majority(Ctx, pawn_majority(white, queenside, Sqs, 2)),
+    length(Sqs, 3).
+
+test(equal_pawns_are_not_a_majority) :-
+    ctx("4k3/ppp5/8/8/8/8/PPP5/4K3 w - - 0 1", Ctx),
+    \+ pawn_majority(Ctx, _).
+
+test(pawn_break_with_a_double_step, [nondet]) :-
+    ctx("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2", Ctx),
+    sq(d2, D2), sq(d4, D4), sq(e5, E5),
+    pawn_break(Ctx, pawn_break(white, D2, D4, E5)).
+
+test(pawn_breaks_are_only_for_the_side_to_move) :-
+    ctx("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2", Ctx),
+    \+ pawn_break(Ctx, pawn_break(black, _, _, _)).
+
+test(no_pawn_break_in_the_start_position) :-
+    ctx("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", Ctx),
+    \+ pawn_break(Ctx, _).
+
+test(unstoppable_pawn_king_outside_the_square, [nondet]) :-
+    % pawn needs 3 moves, king needs 4, pawn moves first
+    ctx("8/4k3/8/P7/8/8/8/7K w - - 0 1", Ctx),
+    sq(a5, A5),
+    unstoppable_pawn(Ctx, unstoppable_pawn(white, A5)).
+
+test(same_pawn_is_caught_if_the_king_moves_first) :-
+    ctx("8/4k3/8/P7/8/8/8/7K b - - 0 1", Ctx),
+    \+ unstoppable_pawn(Ctx, _).
+
+test(pawn_is_not_unstoppable_against_a_piece) :-
+    ctx("8/4k3/8/P7/8/8/n7/7K w - - 0 1", Ctx),
+    \+ unstoppable_pawn(Ctx, _).
 
 :- end_tests(structure).
 
@@ -310,5 +430,44 @@ test(inspect_empty_square) :-
     inspect(Pos, e4, Reply),
     Reply.piece == null,
     length(Reply.white, 1).
+
+%   Every fact a rule can produce must have a sentence, a label and something
+%   to draw, or the whole reply for that position would fail.
+test(every_new_kind_of_fact_renders) :-
+    Samples = [ battery-"3r2k1/5ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1",
+                discovered_attack-"4k3/4q3/8/8/4N3/8/8/4R1K1 w - - 0 1",
+                pinned_defender-"4kr2/8/8/b7/8/5B2/3N4/4K3 b - - 0 1",
+                trapped-"N7/pk6/8/8/8/8/8/4K3 w - - 0 1",
+                weak_back_rank-"6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+                outpost_piece-"4k3/pp3ppp/8/3N4/4P3/8/8/4K3 w - - 0 1",
+                backward_pawn-"4k3/8/8/4p3/2P1P3/3P4/8/4K3 w - - 0 1",
+                rook_on_seventh-"8/5pk1/6p1/8/3R4/6P1/r4PK1/8 w - - 0 1",
+                pawn_majority-"4k3/pp6/8/8/8/8/PPP5/4K3 w - - 0 1",
+                pawn_break-"rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+                unstoppable_pawn-"8/4k3/8/P7/8/8/8/7K w - - 0 1" ],
+    forall(member(Kind-Fen, Samples), renders(Kind, Fen)).
+
+renders(Kind, Fen) :-
+    fen_pos(Fen, Pos),
+    analyze(Pos, [], Reply),
+    get_dict(facts, Reply, Facts),
+    member(Dict, Facts),
+    get_dict(kind, Dict, Kind),
+    get_dict(text, Dict, Text), Text \== '',
+    get_dict(label, Dict, Label), Label \== '',
+    get_dict(viz, Dict, Viz), Viz \== [],
+    !.
+
+test(new_facts_lead_to_plans, [nondet]) :-
+    fen_pos("6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", Pos),
+    analyze(Pos, [], Reply),
+    member(Plan, Reply.plans),
+    Plan.kind == back_rank.
+
+test(unstoppable_pawn_plan_comes_before_the_generic_passed_pawn_plan) :-
+    fen_pos("8/4k3/8/P7/8/8/8/7K w - - 0 1", Pos),
+    analyze(Pos, [], Reply),
+    Reply.plans = [First|_],
+    First.kind == queen_the_pawn.
 
 :- end_tests(analysis).

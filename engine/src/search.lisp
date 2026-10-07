@@ -2,9 +2,10 @@
 ;;;; principal-variation alpha-beta with late move reductions, quiescence,
 ;;;; static exchange evaluation, transposition table, move ordering, time control.
 ;;;;
-;;;; Nothing in this file calls Prolog. Symbolic knowledge enters only as
+;;;; Nothing in this file calls Prolog. Symbolic knowledge can enter only as
 ;;;; ROOT-HINTS: a move -> bonus table computed once before the search starts
-;;;; and consulted when ordering moves at the root.
+;;;; and consulted when ordering moves at the root. The game does not pass one
+;;;; (measured: it does not help); the benchmark and self-play scripts can.
 
 (in-package :symchess)
 

@@ -8,6 +8,13 @@
       weak_square(Owner, Sq, SupportSq)  a hole in Owner's camp that an enemy
                                          pawn on SupportSq already controls
       king_shield(Color, KingSq, [MissingFile, ...])
+      weak_back_rank(Color, KingSq)      no escape square, no heavy piece on guard
+      outpost_piece(Color, Type, Sq, SupportSq)
+      backward_pawn(Color, Sq)
+      rook_on_seventh(Color, Sq)
+      pawn_majority(Color, Wing, [Sq, ...], EnemyCount)
+      pawn_break(Color, From, To, TargetSq)   for the side to move only
+      unstoppable_pawn(Color, Sq)        the rule of the square
 */
 
 :- module(structure,
@@ -18,6 +25,13 @@
             doubled_pawns/2,
             weak_square/2,
             king_shield/2,
+            weak_back_rank/2,
+            outpost_piece/2,
+            backward_pawn/2,
+            rook_on_seventh/2,
+            pawn_majority/2,
+            pawn_break/2,
+            unstoppable_pawn/2,
             is_open_file/2,
             is_semi_open_file/3,
             is_passed/3,
@@ -111,3 +125,111 @@ king_shield(Ctx, king_shield(C, F/R, Missing)) :-
             ),
             Missing),
     Missing \== [].
+
+%   The king sits on its back rank behind a wall of its own men, with no rook
+%   or queen of its own on that rank, while the enemy still has a heavy piece:
+%   a check along the rank could be mate.
+weak_back_rank(Ctx, weak_back_rank(C, F/R)) :-
+    piece(Ctx, C, king, F/R),
+    rel_rank(C, R, 1),
+    opponent(C, O),
+    has_heavy_piece(Ctx, O),
+    rel_rank(C, R2, 2),
+    Lo is max(1, F - 1), Hi is min(8, F + 1),
+    forall(between(Lo, Hi, F2), at(Ctx, F2/R2, C, _)),
+    \+ ( piece(Ctx, C, T, _/R), memberchk(T, [rook, queen]) ).
+
+%   A knight or bishop already standing on a hole in the enemy camp.
+outpost_piece(Ctx, outpost_piece(C, T, Sq, Support)) :-
+    piece(Ctx, C, T, Sq),
+    memberchk(T, [knight, bishop]),
+    opponent(C, O),
+    is_weak_square(Ctx, O, Sq, Support).
+
+%   A pawn whose neighbours have all gone past it, so none can support its
+%   advance, and whose next square is covered by an enemy pawn.
+backward_pawn(Ctx, backward_pawn(C, F/R)) :-
+    piece(Ctx, C, pawn, F/R),
+    rel_rank(C, R, RR),
+    once(( piece(Ctx, C, pawn, F1/_), abs(F1 - F) =:= 1 )),
+    \+ ( piece(Ctx, C, pawn, F2/R2),
+         abs(F2 - F) =:= 1,
+         rel_rank(C, R2, RR2),
+         RR2 =< RR
+       ),
+    step(C, R, R1),
+    opponent(C, O),
+    once(attack(Ctx, O, pawn, _, F/R1)).
+
+step(white, R, R1) :- R1 is R + 1.
+step(black, R, R1) :- R1 is R - 1.
+
+%   A rook on the seventh rank that has something to do there: the enemy king
+%   is cut off on its back rank, or there are pawns to attack.
+rook_on_seventh(Ctx, rook_on_seventh(C, F/R)) :-
+    piece(Ctx, C, rook, F/R),
+    rel_rank(C, R, 7),
+    opponent(C, O),
+    (   piece(Ctx, O, king, _/KR), rel_rank(C, KR, 8)
+    ->  true
+    ;   piece(Ctx, O, pawn, _/R)
+    ->  true
+    ).
+
+%   More pawns than the opponent on one wing (the opponent having at least
+%   one there): the raw material for a passed pawn.
+pawn_majority(Ctx, pawn_majority(C, Wing, Sqs, M)) :-
+    opponent(C, O),
+    member(Wing-Files, [queenside-[1, 2, 3], kingside-[6, 7, 8]]),
+    findall(F/R, ( piece(Ctx, C, pawn, F/R), memberchk(F, Files) ), Sqs),
+    findall(x, ( piece(Ctx, O, pawn, F/_), memberchk(F, Files) ), Theirs),
+    length(Sqs, N),
+    length(Theirs, M),
+    M >= 1,
+    N > M.
+
+%   The side to move has a centre or bishop-file pawn that can advance (one
+%   square, or two from its starting square) to a square from which it
+%   attacks an enemy pawn.
+pawn_break(Ctx, pawn_break(C, F/R, F/R1, Target)) :-
+    ctx_side(Ctx, C),
+    piece(Ctx, C, pawn, F/R),
+    between(3, 6, F),
+    pawn_advance(Ctx, C, F/R, R1),
+    opponent(C, O),
+    step(C, R1, R2),
+    once(( member(DF, [-1, 1]),
+           TF is F + DF,
+           Target = TF/R2,
+           at(Ctx, Target, O, pawn)
+         )).
+
+pawn_advance(Ctx, C, F/R, R1) :-
+    step(C, R, RA),
+    \+ at(Ctx, F/RA, _, _),
+    (   R1 = RA
+    ;   rel_rank(C, R, 2),
+        step(C, RA, R1),
+        \+ at(Ctx, F/R1, _, _)
+    ).
+
+%   The rule of the square. A passed pawn with a clear path, against a king
+%   and pawns only, queens by force when the enemy king is too far away to
+%   reach the queening square in time.
+unstoppable_pawn(Ctx, unstoppable_pawn(C, F/R)) :-
+    piece(Ctx, C, pawn, F/R),
+    is_passed(Ctx, C, F/R),
+    opponent(C, O),
+    \+ ( piece(Ctx, O, T, _), T \== king, T \== pawn ),
+    \+ ( piece(Ctx, _, _, F/RA), ahead(C, R, RA) ),
+    rel_rank(C, R, RR0),
+    RR is max(RR0, 3),                   % from its starting square it may jump two
+    Moves is 8 - RR,
+    rel_rank(C, QR, 8),
+    piece(Ctx, O, king, KF/KR),
+    KingMoves is max(abs(KF - F), abs(KR - QR)),
+    ctx_side(Ctx, Side),
+    (   Side == C
+    ->  KingMoves > Moves
+    ;   KingMoves - 1 > Moves
+    ).

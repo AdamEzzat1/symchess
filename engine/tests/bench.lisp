@@ -24,6 +24,30 @@
 
 (defparameter *depth* 6)
 
+;; More positions for the hint experiment: ordinary openings, a few moves in.
+(defparameter *openings*
+  '(("open game" "e2e4" "e7e5" "g1f3" "b8c6")
+    ("queen's gambit" "d2d4" "d7d5" "c2c4" "e7e6")
+    ("sicilian" "e2e4" "c7c5" "g1f3" "d7d6")
+    ("king's indian" "d2d4" "g8f6" "c2c4" "g7g6")
+    ("french" "e2e4" "e7e6" "d2d4" "d7d5")
+    ("english" "c2c4" "e7e5" "b1c3" "g8f6")
+    ("reti" "g1f3" "d7d5" "g2g3" "g8f6")
+    ("caro-kann" "e2e4" "c7c6" "d2d4" "d7d5")
+    ("london" "d2d4" "d7d5" "g1f3" "g8f6" "c1f4" "e7e6")
+    ("scandinavian" "e2e4" "d7d5" "e4d5" "d8d5")
+    ("modern" "e2e4" "g7g6" "d2d4" "f8g7")
+    ("dutch" "d2d4" "f7f5" "g2g3" "g8f6")))
+
+(defparameter *hint-positions*
+  (append *positions*
+          (mapcar (lambda (entry)
+                    (let ((p (pos-from-fen +start-fen+)))
+                      (dolist (uci (rest entry))
+                        (make-move p (parse-uci-move p uci)))
+                      (list (first entry) (pos-to-fen p))))
+                  *openings*)))
+
 (format t "~&== perft speed~%")
 (let* ((p (pos-from-fen +start-fen+))
        (start (now-ms))
@@ -34,8 +58,9 @@
 (format t "~&~%== search depth ~D: plain vs Prolog root hints~%" *depth*)
 (format t "  ~16A ~8A ~10A ~10A ~7A ~7A ~8A ~6A~%"
         "position" "prolog" "nodes" "+hints" "change" "move" "+hints" "score=")
-(let ((total-plain 0) (total-hinted 0) (prolog-ms 0) (count 0))
-  (dolist (entry *positions*)
+(let ((total-plain 0) (total-hinted 0) (prolog-ms 0) (count 0)
+      (fewer 0) (more 0) (same-move 0) (moves 0) (warm-ms 0))
+  (dolist (entry *hint-positions*)
     (destructuring-bind (name fen) entry
       (let* ((p (pos-from-fen fen))
              (t0 (now-ms))
@@ -48,8 +73,14 @@
              (n2 (search-result-nodes hinted)))
         (incf total-plain n1)
         (incf total-hinted n2)
+        ;; The very first query also starts Prolog: leave it out of the mean.
+        (when (plusp count) (incf warm-ms ms))
         (incf prolog-ms ms)
         (incf count)
+        (incf moves (length (legal-moves p)))
+        (cond ((< n2 n1) (incf fewer)) ((> n2 n1) (incf more)))
+        (when (= (search-result-best-move plain) (search-result-best-move hinted))
+          (incf same-move))
         (format t "  ~16A ~5D ms ~10:D ~10:D ~6,1F% ~7A ~8A ~6A~%"
                 name ms n1 n2 (* 100.0 (/ (- n2 n1) n1))
                 (move-san p (search-result-best-move plain))
@@ -57,8 +88,16 @@
                 (if (= (search-result-score plain) (search-result-score hinted)) "yes" "NO")))))
   (format t "~%  total nodes: ~:D plain, ~:D with hints (~,1F%)~%"
           total-plain total-hinted (* 100.0 (/ (- total-hinted total-plain) total-plain)))
-  (format t "  mean Prolog root analysis: ~,1F ms per position (uncached)~%"
-          (/ prolog-ms count)))
+  (format t "  hints searched fewer nodes in ~D of ~D positions, more in ~D; same move chosen in ~D~%"
+          fewer count more same-move)
+  (let ((query (/ warm-ms (max 1 (1- count))))
+        (branching (/ moves count)))
+    (format t "  mean Prolog root analysis: ~,1F ms per position (after the first)~%" query)
+    ;; Experiment D, by arithmetic: what would it cost to ask Prolog about
+    ;; every position two moves from the root?
+    (format t "  mean legal moves: ~,1F; so analysing every position two plies down~%" branching)
+    (format t "  would take about ~,1F s per move, before any searching~%"
+            (/ (* branching branching query) 1000.0))))
 
 (format t "~&~%== search speed~%")
 (let* ((p (pos-from-fen "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"))

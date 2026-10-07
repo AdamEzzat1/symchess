@@ -155,6 +155,9 @@ logs/        Per-session event logs and Prolog stderr (git-ignored)
   `prolog`) and by how far the search backs them up (`measured`, `confirmed`,
   `unconfirmed`, `overruled`, `heuristic`).
 - Draws only what the engine or a Prolog fact supplied.
+- Prolog's move ranking no longer orders the search: measured over 96 games it
+  made play weaker once its time was counted, so it is now shown for comparison
+  only. Earlier note, kept for the record:
 - Prolog's move-ordering hints are implemented but, measured, do not yet make
   the search smaller (about 0.1% difference). See section 11 of the
   architecture document.

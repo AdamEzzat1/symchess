@@ -38,6 +38,17 @@ const KIND: Record<string, Look> = {
   passed_pawn: { title: 'Passed pawn', icon: 'files', color: TONE.defend },
   open_file: { title: 'Open file', icon: 'files', color: TONE.pv },
   semi_open_file: { title: 'Semi-open file', icon: 'files', color: TONE.pv },
+  battery: { title: 'Battery', icon: 'target', color: TONE.threat },
+  discovered_attack: { title: 'Discovered attack', icon: 'target', color: TONE.threat },
+  trapped: { title: 'Trapped piece', icon: 'target', color: TONE.threat },
+  pinned_defender: { title: 'Pinned defender', icon: 'link', color: TONE.pin },
+  weak_back_rank: { title: 'Weak back rank', icon: 'shield', color: TONE.weak },
+  backward_pawn: { title: 'Backward pawn', icon: 'grid', color: TONE.weak },
+  outpost_piece: { title: 'Outpost', icon: 'shield', color: TONE.defend },
+  rook_on_seventh: { title: 'Rook on the seventh', icon: 'files', color: TONE.defend },
+  pawn_majority: { title: 'Pawn majority', icon: 'files', color: TONE.defend },
+  pawn_break: { title: 'Pawn break', icon: 'files', color: TONE.pv },
+  unstoppable_pawn: { title: 'Unstoppable pawn', icon: 'files', color: TONE.defend },
 };
 const UNKNOWN_KIND: Look = { title: 'Fact', icon: 'grid', color: TONE.neutral };
 const PLAN_LOOK: Look = { title: 'Candidate plan', icon: 'nodes', color: TONE.pv };
@@ -355,7 +366,7 @@ export function ReasoningPanel({
                 {hints.length > 0 && (
                   <section className="block">
                     <h3>
-                      Ordering hints <Badge kind="heuristic">order only</Badge>
+                      Prolog’s move ranking <Badge kind="heuristic">not used by the search</Badge>
                     </h3>
                     <ul className="hints">
                       {hints.map((hint) => (

@@ -34,6 +34,12 @@
 (defvar *search-lock* (sb-thread:make-mutex :name "search"))
 
 ;; Per-session ceilings, so one visitor cannot monopolise a shared server.
+;; Should Prolog's per-move scores order the root moves of a real search?
+;; Measured (docs/NEXT_STAGE.md, milestone 3): no change in nodes searched, and
+;; weaker play once Prolog's time is counted. So they are off. The scores are
+;; still computed, shown, and compared with the search's choice afterwards.
+(defvar *use-root-hints* nil)
+
 (defvar *max-depth* 30)
 (defvar *max-move-time-ms* 120000)
 
@@ -376,7 +382,30 @@ notices the closed socket and ends the session."
       (unless (make-move p m) (return)))
     (* side (- (material-balance p) before))))
 
-(defun build-explanation (p result analysis &optional (purpose :play) note)
+(defparameter *line-end-kinds*
+  '("check" "fork" "pin" "skewer" "hanging" "trapped" "pinned_defender"
+    "discovered_attack" "weak_back_rank" "unstoppable_pawn")
+  "The facts worth reporting about where the engine expects the game to go.")
+
+(defun expected-facts (p pv)
+  "What Prolog sees in the position at the end of line PV: a list of fact
+objects, at most three, tactical kinds only. NIL if the line is a single move,
+if it ends the game, or if Prolog is unavailable. Costs one Prolog query."
+  (when (rest pv)
+    (let ((end (copy-position p)))
+      (dolist (m pv)
+        (unless (make-move end m) (return-from expected-facts nil)))
+      (when (has-legal-move-p end)
+        (let ((analysis (symbolic-analysis end)))
+          (when analysis
+            (let ((picked '()))
+              (dolist (fact (jget analysis "facts" '()))
+                (when (and (< (length picked) 3)
+                           (member (jget fact "kind") *line-end-kinds* :test #'equal))
+                  (push fact picked)))
+              (nreverse picked))))))))
+
+(defun build-explanation (p result analysis &optional (purpose :play) note expected)
   (let* ((best (search-result-best-move result))
          (legal (legal-moves p))
          (san (move-san p best legal))
@@ -409,6 +438,12 @@ notices the closed socket and ends the session."
                      (jget terms "material") (jget terms "placement")
                      (jget terms "pawnStructure") (jget terms "bishopPair")
                      (jget terms "activity") (jget terms "kingSafety"))))
+      ;; Where the line leads: Prolog's reading of the position the search
+      ;; expects to reach. Advice about a position that may never arise.
+      (dolist (fact expected)
+        (add "prolog" "heuristic"
+             (format nil "At the end of the expected line: ~A" (jget fact "text"))
+             (jget fact "squares" '())))
       (if (null analysis)
           (add "prolog" "heuristic"
                "The Prolog knowledge layer was unavailable, so this explanation is search-only.")
@@ -446,7 +481,7 @@ notices the closed socket and ends the session."
                       (t (add "prolog" "heuristic" text targets kind)))))
             (cond ((and entry (/= 0 (jget entry "score" 0)))
                    (add "prolog" "heuristic"
-                        (format nil "Before the search, Prolog's motif ordering ranked ~A number ~D of ~D legal moves (hint ~@D)."
+                        (format nil "Prolog's own ranking of the moves, made without searching, put ~A number ~D of ~D (score ~@D). The search did not use that ranking."
                                 san (1+ rank) (length entries) (jget entry "score" 0))))
                   (t
                    (add "prolog" "heuristic"
@@ -538,7 +573,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                "positionId" pid "searchId" sid
                "purpose" (if (eq purpose :play) "play" "analysis")
                "maxDepth" depth "timeLimitMs" time-ms
-               "symbolicHints" (jbool analysis))
+               "symbolicHints" (jbool (and *use-root-hints* analysis)))
     (let* ((level (or (find-level (game-level g)) (find-level "club")))
            (played nil)                 ; the result that describes the move played
            (note nil)
@@ -555,7 +590,8 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                (unwind-protect
                     (let ((r (search-position p :max-depth depth :time-ms time-ms
                                                 :stop-fn (lambda () (car flag))
-                                                :hints (symbolic-hints p analysis)
+                                                :hints (and *use-root-hints*
+                                                            (symbolic-hints p analysis))
                                                 :on-iteration
                                                 (lambda (r)
                                                   (unless (cancelled-p flag)
@@ -573,7 +609,13 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                           (unless best-p
                             (setf played (search-line p move (search-result-depth r))))))
                       r)
-                 (set-engine-features)))))
+                 (set-engine-features))))
+           ;; One more Prolog query, outside the search: what does the line
+           ;; lead to? Novice keeps its explanations short.
+           (expected (and played
+                          (not (cancelled-p flag))
+                          (or (not (eq purpose :play)) (level-full level))
+                          (expected-facts p (search-result-pv played)))))
       (with-state
         ;; Stale-result guard: the game may have moved on while we searched.
         (when (or (cancelled-p flag) (/= pid (game-position-id g))
@@ -586,7 +628,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                "evalBreakdown" terms
                (search-info-fields p result))
         (apply #'broadcast "explanation" "positionId" pid "searchId" sid
-               (build-explanation p played analysis purpose note))
+               (build-explanation p played analysis purpose note expected))
         (when (eq purpose :play)
           (setf (game-thinking g) nil)
           (when (apply-move g (search-result-best-move played) "engine")

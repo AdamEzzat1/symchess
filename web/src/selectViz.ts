@@ -19,12 +19,12 @@ export interface Layer {
 
 export const LAYERS: readonly Layer[] = [
   { id: 'best', label: 'Best line', swatch: 'pv', kinds: [] },
-  { id: 'pins', label: 'Pins', swatch: 'pin', kinds: ['pin', 'skewer'] },
-  { id: 'threats', label: 'Threats', swatch: 'threat', kinds: ['check', 'fork', 'hanging', 'threatened'] },
+  { id: 'pins', label: 'Pins', swatch: 'pin', kinds: ['pin', 'skewer', 'pinned_defender'] },
+  { id: 'threats', label: 'Threats', swatch: 'threat', kinds: ['check', 'fork', 'hanging', 'threatened', 'trapped', 'discovered_attack', 'battery'] },
   { id: 'defenses', label: 'Defenses', swatch: 'defend', kinds: ['overloaded'] },
-  { id: 'weak', label: 'Weak squares', swatch: 'weak', kinds: ['weak_square', 'isolated_pawn', 'doubled_pawns', 'king_shield'] },
+  { id: 'weak', label: 'Weak squares', swatch: 'weak', kinds: ['weak_square', 'isolated_pawn', 'doubled_pawns', 'backward_pawn', 'king_shield', 'weak_back_rank'] },
   { id: 'plans', label: 'Plans', swatch: 'plan', kinds: [] },
-  { id: 'structure', label: 'Files & pawns', swatch: 'open', kinds: ['open_file', 'semi_open_file', 'passed_pawn'] },
+  { id: 'structure', label: 'Files & pawns', swatch: 'open', kinds: ['open_file', 'semi_open_file', 'passed_pawn', 'unstoppable_pawn', 'pawn_majority', 'pawn_break', 'outpost_piece', 'rook_on_seventh'] },
 ];
 
 export const DEFAULT_LAYERS: readonly LayerId[] = ['best', 'pins', 'threats'];

@@ -33,6 +33,29 @@ plan(_, S, Facts, plan(win_material, Text, [Id], [ring(Sq, plan)])) :-
     sq_name(Sq, Name),
     format(atom(Text), 'Win material: the ~w on ~w is undefended.', [T, Name]).
 
+plan(_, S, Facts, plan(take_undefended, Text, [Id], [ring(GSq, plan)])) :-
+    opponent(S, O),
+    member(Id-pinned_defender(O, _, _, GT, GSq), Facts),
+    sq_name(GSq, Name),
+    format(atom(Text), 'Take the ~w on ~w: its only defender is pinned to the king.', [GT, Name]).
+
+plan(_, S, Facts, plan(win_trapped_piece, Text, [Id], [ring(Sq, plan)])) :-
+    opponent(S, O),
+    member(Id-trapped(O, T, Sq, _, _), Facts),
+    sq_name(Sq, Name),
+    format(atom(Text), 'Win the ~w on ~w: it is attacked and has no safe square.', [T, Name]).
+
+plan(_, S, Facts, plan(discovered_attack, Text, [Id], [ring(MSq, plan), arrow(SSq, TSq, plan)])) :-
+    member(Id-discovered_attack(S, MT, MSq, _, SSq, TT, TSq), Facts),
+    sq_name(MSq, M), sq_name(TSq, T),
+    format(atom(Text), 'Move the ~w from ~w with a threat of its own: that uncovers an attack on the ~w on ~w.',
+           [MT, M, TT, T]).
+
+plan(_, S, Facts, plan(queen_the_pawn, Text, [Id], [ring(Sq, plan)])) :-
+    member(Id-unstoppable_pawn(S, Sq), Facts),
+    sq_name(Sq, Name),
+    format(atom(Text), 'Push the pawn on ~w: the enemy king cannot catch it.', [Name]).
+
 plan(_, S, Facts, plan(save_piece, Text, [Id], [ring(Sq, plan)])) :-
     (   member(Id-hanging(S, T, Sq, _), Facts)
     ;   member(Id-threatened(S, T, Sq, _, _), Facts)
@@ -55,6 +78,17 @@ plan(_, S, Facts, plan(exploit_pin, Text, [Id], [ring(Sq, plan)])) :-
     format(atom(Text), 'Pile up on the pinned ~w on ~w: it cannot move without exposing the ~w.',
            [T, Name, BT]).
 
+plan(_, S, Facts, plan(back_rank, Text, [Id], [ring(KSq, plan)])) :-
+    opponent(S, O),
+    member(Id-weak_back_rank(O, KSq), Facts),
+    sq_name(KSq, Name),
+    format(atom(Text), 'Look for a check along the back rank: the king on ~w has no escape square.', [Name]).
+
+plan(_, S, Facts, plan(make_luft, Text, [Id], [ring(KSq, plan)])) :-
+    member(Id-weak_back_rank(S, KSq), Facts),
+    sq_name(KSq, Name),
+    format(atom(Text), 'Give your king on ~w an escape square, or keep a rook on the back rank.', [Name]).
+
 plan(Ctx, S, Facts, plan(use_outpost, Text, [Id], [arrow(NSq, Sq, plan)])) :-
     opponent(S, O),
     member(Id-weak_square(O, Sq, _), Facts),
@@ -70,6 +104,11 @@ plan(Ctx, S, Facts, plan(use_open_file, Text, [Id], [file(F, plan)])) :-
          )),
     file_letter(F, L),
     format(atom(Text), 'Put a rook on the open ~w-file.', [L]).
+
+plan(_, S, Facts, plan(pawn_break, Text, [Id], [arrow(From, To, plan)])) :-
+    member(Id-pawn_break(S, From, To, Target), Facts),
+    sq_name(From, F), sq_name(To, T), sq_name(Target, G),
+    format(atom(Text), 'Break with the pawn from ~w to ~w to challenge the pawn on ~w.', [F, T, G]).
 
 plan(_, S, Facts, plan(push_passed_pawn, Text, [Id], [ring(Sq, plan)])) :-
     member(Id-passed_pawn(S, Sq), Facts),

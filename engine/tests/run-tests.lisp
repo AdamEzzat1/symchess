@@ -274,6 +274,8 @@
          (fields (build-explanation p result analysis))
          (items (getf-string fields "items")))
     (check "analysis is NIL, not an error" analysis nil)
+    (check "no line-end facts are invented either"
+           (expected-facts p (search-result-pv result)) nil)
     (check "no ordering hints are invented" hints nil)
     (check "search still returns a legal move"
            (and (member (search-result-best-move result) (legal-moves p)) t) t)
@@ -290,6 +292,36 @@
            (and (find "measured" items :key (lambda (item) (jget item "status")) :test #'string=)
                 t)
            t)))
+(stop-prolog)
+
+(section "where the line leads")
+;; These need a working Prolog. If it cannot be started they are reported as
+;; skipped rather than failed: the engine is specified to work without it.
+(let* ((p (pos-from-fen "r3k3/8/8/1N6/8/8/8/4K3 w - - 0 1"))
+       (fork (parse-uci-move p "b5c7"))
+       (reply (let ((q (copy-position p)))
+                (make-move q fork)
+                (first (legal-moves q)))))
+  (if (null (symbolic-analysis p))
+      (format t "  skip  Prolog is not available~%")
+      (let ((facts (expected-facts p (list fork reply))))
+        (check "a one-move line has no 'end of the line' to describe"
+               (expected-facts p (list fork)) nil)
+        (check "at most three facts are reported" (<= (length facts) 3) t)
+        (check "every reported fact is a tactical kind with a sentence"
+               (every (lambda (f)
+                        (and (member (jget f "kind") *line-end-kinds* :test #'equal)
+                             (plusp (length (jget f "text")))))
+                      facts)
+               t)
+        (check "the explanation says where the line leads"
+               (let* ((sample (list (obj "kind" "fork" "text" "A fork." "squares" '("c7"))))
+                      (r (progn (tt-clear) (search-position p :max-depth 3)))
+                      (items (getf-string (build-explanation p r nil :play nil sample) "items")))
+                 (and (find "At the end of the expected line: A fork." items
+                            :key (lambda (i) (jget i "text")) :test #'string=)
+                      t))
+               t))))
 (stop-prolog)
 
 (section "json and websocket primitives")

@@ -25,13 +25,24 @@ root_fact(Ctx, F) :- skewer(Ctx, F).
 root_fact(Ctx, F) :- hanging(Ctx, F).
 root_fact(Ctx, F) :- threatened(Ctx, F).
 root_fact(Ctx, F) :- overloaded(Ctx, F).
+root_fact(Ctx, F) :- pinned_defender(Ctx, F).
+root_fact(Ctx, F) :- trapped(Ctx, F).
+root_fact(Ctx, F) :- discovered_attack(Ctx, F).
+root_fact(Ctx, F) :- battery(Ctx, F).
+root_fact(Ctx, F) :- weak_back_rank(Ctx, F).
+root_fact(Ctx, F) :- unstoppable_pawn(Ctx, F).
 root_fact(Ctx, F) :- weak_square(Ctx, F).
+root_fact(Ctx, F) :- outpost_piece(Ctx, F).
+root_fact(Ctx, F) :- rook_on_seventh(Ctx, F).
 root_fact(Ctx, F) :- passed_pawn(Ctx, F).
+root_fact(Ctx, F) :- pawn_break(Ctx, F).
 root_fact(Ctx, F) :- king_shield(Ctx, F).
 root_fact(Ctx, F) :- open_file(Ctx, F).
 root_fact(Ctx, F) :- semi_open_file(Ctx, F).
 root_fact(Ctx, F) :- isolated_pawn(Ctx, F).
 root_fact(Ctx, F) :- doubled_pawns(Ctx, F).
+root_fact(Ctx, F) :- backward_pawn(Ctx, F).
+root_fact(Ctx, F) :- pawn_majority(Ctx, F).
 
 %!  root_facts(+Ctx, -IdFacts) is det.
 %   IdFacts = [f1-Fact, f2-Fact, ...]; ids are stable within one reply.

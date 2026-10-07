@@ -10,6 +10,14 @@
       hanging(Owner, Type, Sq, [AttackerType-From, ...])
       threatened(Owner, Type, Sq, AttackerType, AttackerSq)
       overloaded(Owner, Type, Sq, [GuardedSq, ...])
+      battery(Color, FrontType, FrontSq, BackType, BackSq, TargetType, TargetSq)
+      discovered_attack(Color, MaskType, MaskSq, SliderType, SliderSq, TargetType, TargetSq)
+      pinned_defender(Owner, Type, Sq, GuardedType, GuardedSq)
+      trapped(Owner, Type, Sq, AttackerType, AttackerSq)
+
+    All of these read attack geometry only. None of them generates moves:
+    "where could this piece go" below means "which squares does it attack",
+    so pins and lines opened by the move itself are not accounted for.
 */
 
 :- module(tactics,
@@ -20,6 +28,10 @@
             hanging/2,
             threatened/2,
             overloaded/2,
+            battery/2,
+            discovered_attack/2,
+            pinned_defender/2,
+            trapped/2,
             is_hanging/4,
             is_threatened/4,
             safe_piece/4
@@ -137,3 +149,85 @@ overloaded(Ctx, overloaded(C, T, Sq, Guarded)) :-
             ),
             Guarded),
     Guarded = [_, _|_].
+
+%   Two line pieces of one colour, one behind the other on a line both of them
+%   move along, bearing on an enemy piece. Without a target (a queen and rook
+%   side by side on the back rank, say) it is not worth reporting.
+battery(Ctx, battery(C, FT, FSq, BT, BSq, TT, TSq)) :-
+    piece(Ctx, C, BT, BSq),
+    slider_dir(BT, Dir),
+    toward_enemy(C, Dir),
+    ctx_assoc(Ctx, Assoc),
+    first_on_ray(Assoc, BSq, Dir, FSq, C-FT),
+    once(slider_dir(FT, Dir)),
+    first_on_ray(Assoc, FSq, Dir, TSq, O-TT),
+    opponent(C, O).
+
+toward_enemy(white, _/DR) :- DR > 0, !.
+toward_enemy(black, _/DR) :- DR < 0, !.
+toward_enemy(_, DF/0) :- DF > 0.
+
+%   A line piece is masked by one of its own men, and behind that man stands
+%   an enemy piece worth hitting. If the masking piece moves off the line, the
+%   attack appears; if it moves with a threat of its own, both land at once.
+discovered_attack(Ctx, discovered_attack(C, MT, MSq, ST, SSq, TT, TSq)) :-
+    piece(Ctx, C, ST, SSq),
+    slider_dir(ST, Dir),
+    ctx_assoc(Ctx, Assoc),
+    first_on_ray(Assoc, SSq, Dir, MSq, C-MT),
+    \+ slider_dir(MT, Dir),              % that would be a battery, not a mask
+    \+ pawn_stays_on_line(MT, Dir),
+    first_on_ray(Assoc, MSq, Dir, TSq, O-TT),
+    opponent(C, O),
+    discovered_target(Ctx, ST, O, TT, TSq).
+
+%   A pawn moving straight ahead never leaves its own file.
+pawn_stays_on_line(pawn, 0/_).
+
+discovered_target(_, _, _, king, _) :- !.
+discovered_target(_, ST, _, TT, _) :- value(TT, VT), value(ST, VS), VT > VS, !.
+discovered_target(Ctx, _, O, TT, TSq) :- TT \== pawn, \+ attacked_by(Ctx, O, TSq).
+
+%   A piece pinned to its king is the only defender of an attacked friend, so
+%   that friend is really undefended. (If the friend stands on the pin line
+%   itself the pinned piece may still recapture along it: not reported.)
+pinned_defender(Ctx, pinned_defender(C, T, Sq, GT, GSq)) :-
+    pin(Ctx, pin(absolute, PC, _, PSq, T, Sq, _, _)),
+    opponent(PC, C),
+    piece(Ctx, C, GT, GSq),
+    GT \== king,
+    GSq \== Sq,
+    attacked_by(Ctx, PC, GSq),
+    attackers(Ctx, C, GSq, [_-Sq]),
+    \+ collinear(PSq, Sq, GSq).
+
+collinear(F1/R1, F2/R2, F3/R3) :-
+    (F3 - F2) * (R1 - R2) =:= (R3 - R2) * (F1 - F2).
+
+%   A piece under attack with nowhere safe to go.
+trapped(Ctx, trapped(C, T, Sq, AT, ASq)) :-
+    piece(Ctx, C, T, Sq),
+    memberchk(T, [knight, bishop, rook, queen]),
+    opponent(C, O),
+    (   threatened_by(Ctx, C, T, Sq, AT, ASq)
+    ->  true
+    ;   is_hanging(Ctx, C, T, Sq),
+        once(attack(Ctx, O, AT, ASq, Sq))
+    ),
+    \+ ( attack(Ctx, C, T, Sq, To),
+         \+ at(Ctx, To, C, _),
+         safe_destination(Ctx, C, T, Sq, To)
+       ).
+
+%   To is safe for the piece from From: nothing cheaper attacks it, and it is
+%   either unattacked or defended by some other friend. An enemy standing on
+%   To does not count as attacking To: it would be captured.
+safe_destination(Ctx, C, T, From, To) :-
+    opponent(C, O),
+    value(T, V),
+    \+ ( attack(Ctx, O, XT, XSq, To), XSq \== To, value(XT, VX), VX < V ),
+    (   \+ ( attack(Ctx, O, _, YSq, To), YSq \== To )
+    ->  true
+    ;   attack(Ctx, C, _, DSq, To), DSq \== From
+    ->  true
+    ).

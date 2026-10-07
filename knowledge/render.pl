@@ -91,6 +91,18 @@ fact_label(doubled_pawns(C, F, _), Label) :-
     file_label(F, FL), format(atom(Label), '~w pawns ~w', [C, FL]).
 fact_label(weak_square(_, Sq, _), Label) :- sq_name(Sq, Label).
 fact_label(king_shield(C, KSq, _), Label) :- piece_label(C, king, KSq, Label).
+fact_label(battery(C, FT, FSq, _, _, _, _), Label) :- piece_label(C, FT, FSq, Label).
+fact_label(discovered_attack(C, MT, MSq, _, _, _, _), Label) :- piece_label(C, MT, MSq, Label).
+fact_label(pinned_defender(C, T, Sq, _, _), Label) :- piece_label(C, T, Sq, Label).
+fact_label(trapped(C, T, Sq, _, _), Label) :- piece_label(C, T, Sq, Label).
+fact_label(weak_back_rank(C, KSq), Label) :- piece_label(C, king, KSq, Label).
+fact_label(outpost_piece(C, T, Sq, _), Label) :- piece_label(C, T, Sq, Label).
+fact_label(backward_pawn(C, Sq), Label) :- piece_label(C, pawn, Sq, Label).
+fact_label(rook_on_seventh(C, Sq), Label) :- piece_label(C, rook, Sq, Label).
+fact_label(pawn_majority(C, Wing, _, _), Label) :-
+    format(atom(Label), '~w ~w', [C, Wing]).
+fact_label(pawn_break(C, From, _, _), Label) :- piece_label(C, pawn, From, Label).
+fact_label(unstoppable_pawn(C, Sq), Label) :- piece_label(C, pawn, Sq, Label).
 
 %   describe(+Fact, -Kind, -BenefitingSide, -Squares, -Text, -Viz)
 
@@ -182,6 +194,72 @@ describe(king_shield(C, KSq, Missing), king_shield, O, [KSq], Text, [ring(KSq, k
     maplist(file_letter, Missing, Letters),
     join_and(Letters, List),
     format(atom(Text), 'The ~w king on ~w has no pawn cover on the ~w file(s).', [C, K, List]).
+
+describe(battery(C, FT, FSq, BT, BSq, TT, TSq), battery, C, [BSq, FSq, TSq], Text,
+         [arrow(BSq, FSq, support), arrow(FSq, TSq, threat)]) :-
+    piece_phrase(C, FT, FSq, Front), sq_name(BSq, B), sq_name(TSq, T),
+    format(atom(Text), 'The ~w is backed up by the ~w on ~w: together they bear on the ~w on ~w.',
+           [Front, BT, B, TT, T]).
+
+describe(discovered_attack(C, MT, MSq, ST, SSq, TT, TSq), discovered_attack, C,
+         [MSq, SSq, TSq], Text,
+         [arrow(SSq, TSq, threat), ring(MSq, overloaded)]) :-
+    piece_phrase(C, MT, MSq, Mask), sq_name(SSq, S), sq_name(TSq, T),
+    format(atom(Text), 'If the ~w moves off the line, the ~w on ~w attacks the ~w on ~w (a discovered attack is available).',
+           [Mask, ST, S, TT, T]).
+
+describe(pinned_defender(C, T, Sq, GT, GSq), pinned_defender, O, [Sq, GSq], Text,
+         [ring(Sq, pin), arrow(Sq, GSq, defend), ring(GSq, hanging)]) :-
+    opponent(C, O),
+    piece_phrase(C, T, Sq, Defender), sq_name(GSq, G),
+    format(atom(Text), 'The ~w is pinned to its king, and it is the only defender of the ~w on ~w.',
+           [Defender, GT, G]).
+
+describe(trapped(C, T, Sq, AT, ASq), trapped, O, [Sq, ASq], Text,
+         [ring(Sq, hanging), arrow(ASq, Sq, threat)]) :-
+    opponent(C, O),
+    piece_phrase(C, T, Sq, Piece), sq_name(ASq, A),
+    format(atom(Text), 'The ~w is attacked by the ~w on ~w and every square it could go to is covered (judged by attacked squares; pins are not considered).',
+           [Piece, AT, A]).
+
+describe(weak_back_rank(C, KSq), weak_back_rank, O, [KSq], Text, [ring(KSq, king_danger)]) :-
+    opponent(C, O), sq_name(KSq, K),
+    format(atom(Text), 'The ~w king on ~w has no escape square and no rook or queen guarding its back rank: a check along the rank could be mate.',
+           [C, K]).
+
+describe(outpost_piece(C, T, Sq, Support), outpost_piece, C, [Sq, Support], Text,
+         [ring(Sq, support), arrow(Support, Sq, support)]) :-
+    piece_phrase(C, T, Sq, Piece), sq_name(Support, P),
+    format(atom(Text), 'The ~w stands on an outpost: no enemy pawn can ever attack it, and the pawn on ~w supports it.',
+           [Piece, P]).
+
+describe(backward_pawn(C, Sq), backward_pawn, O, [Sq], Text, [square(Sq, weak_pawn)]) :-
+    opponent(C, O), sq_name(Sq, S),
+    format(atom(Text), 'The ~w pawn on ~w is backward: its neighbours have gone past it and an enemy pawn covers the square in front.',
+           [C, S]).
+
+describe(rook_on_seventh(C, Sq), rook_on_seventh, C, [Sq], Text, [ring(Sq, support)]) :-
+    cap(C, Cap), sq_name(Sq, S),
+    format(atom(Text), '~w has a rook on ~w, deep in the enemy position.', [Cap, S]).
+
+describe(pawn_majority(C, Wing, Sqs, M), pawn_majority, C, Sqs, Text, Viz) :-
+    cap(C, Cap), length(Sqs, N),
+    findall(square(Sq, passed), member(Sq, Sqs), Viz),
+    format(atom(Text), '~w has a ~w pawn majority, ~d against ~d: the raw material for a passed pawn.',
+           [Cap, Wing, N, M]).
+
+describe(pawn_break(C, From, To, Target), pawn_break, C, [From, To, Target], Text,
+         [arrow(From, To, plan), ring(Target, plan)]) :-
+    cap(C, Cap), sq_name(From, F), sq_name(To, T), sq_name(Target, G),
+    format(atom(Text), '~w can advance the pawn from ~w to ~w, challenging the pawn on ~w.',
+           [Cap, F, T, G]).
+
+describe(unstoppable_pawn(C, F/R), unstoppable_pawn, C, [F/R], Text,
+         [square(F/R, passed), arrow(F/R, F/QR, plan)]) :-
+    rel_rank(C, QR, 8),
+    sq_name(F/R, S),
+    format(atom(Text), 'The ~w pawn on ~w cannot be caught: the enemy king is outside its square and nothing else can stop it.',
+           [C, S]).
 
 % ------------------------------------------------------------------ motifs
 

@@ -308,3 +308,37 @@ Analysis always runs at full strength; the level only governs the engine's own m
 | Expert against Club | 48 | 25 | 16 | 7 | 68.8% |
 
 **Two honest limits.** The gap from Novice to Club is very large, and there is nothing in between; a fourth level may be wanted. And on the hosted site, where depth is capped at 7, Expert is only one ply deeper than Club, so the two will play much alike there.
+
+## Milestone 3: results
+
+**Eleven new Prolog rules**, each with at least one position where it must fire and one where it must stay silent (29 new tests, 67 in all):
+
+| Area | Rules |
+| --- | --- |
+| Tactics | battery, discovered attack, pinned defender, trapped piece |
+| King safety | weak back rank |
+| Structure | outpost piece, backward pawn, rook on the seventh, pawn majority, pawn break |
+| Endgame | unstoppable pawn (the rule of the square) |
+
+Seven new plans follow from them (take the piece whose defender is pinned, win the trapped piece, unleash the discovered attack, queen the unstoppable pawn, back-rank check, make an escape square, pawn break).
+
+Two rules were tightened after trying them on real positions: a battery is only reported when it bears on an enemy piece (otherwise a queen and rook side by side on the back rank counted), and pawn breaks are reported for the side to move only.
+
+**Limits of the new rules.** They read attacked squares, not legal moves: "trapped" and "pinned defender" do not account for pins or for lines the move itself opens, and the trapped-piece sentence says so. Not built from the plan's list: x-rays (covered by battery and discovered attack), mating nets, open lines to the king, minority attack, opposition, wrong-coloured bishop. Facts are not yet filtered by difficulty level.
+
+**Where the line leads (experiment B).** After a search, one more Prolog query reads the position at the end of the expected line and up to three tactical facts from it are added to the explanation, marked as heuristic. Cost: one query, about 22 ms *(measured mean over 18 positions)*. Kept. Novice explanations leave it out.
+
+**Root hints as move ordering (experiment C).** *(measured)*
+
+| Measure | Result |
+| --- | --- |
+| Nodes to depth 6, 19 positions, with hints against without | 476,929 against 477,061: 0.0% |
+| Positions where hints meant fewer nodes / more nodes | 6 / 10 of 19 |
+| Same move chosen | 16 of 19 |
+| Strength: full engine with hints against without, 300 ms per move, Prolog's time counted | 19 wins, 43 draws, 34 losses over 96 games: 42.2% |
+
+The criterion was "keep if nodes fall by 5%, remove the ordering if under 2%". Nodes did not fall at all and play was weaker, by more than the margin of error. **Decision: the ordering is switched off.** Prolog's ranking of the moves is still computed, shown in the panel as "not used by the search", and compared with the search's choice in the explanation. The benchmark and self-play scripts can still switch it on to re-measure. A caveat on the strength figure: four matches ran at once, each with its own Prolog process, on a machine doing other work.
+
+**Prolog inside the search (experiment D).** Not built; the arithmetic settles it. A root analysis takes about 22 ms and a position has about 31 legal moves *(both measured)*, so asking Prolog about every position two moves from the root would take about 21 seconds per move before any searching, against a 3-second allowance.
+
+**The upshot** is the same as before, now with more evidence: in this engine Prolog earns its place by explaining, warning and planning. It does not make the search faster or the play stronger.
