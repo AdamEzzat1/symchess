@@ -84,6 +84,10 @@ export interface EvalBreakdown {
   placement: number;
   pawnStructure: number;
   bishopPair: number;
+  /** Mobility and rooks on open files. Absent from engines before 0.3. */
+  activity?: number;
+  /** Pawn cover in front of each king. Absent from engines before 0.3. */
+  kingSafety?: number;
   total: number;
 }
 

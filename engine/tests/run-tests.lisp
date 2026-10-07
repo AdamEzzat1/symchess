@@ -122,6 +122,53 @@
          (= (jget (eval-breakdown p) "total") (evaluate p)))
        t)
 
+(section "static exchange evaluation")
+(flet ((exchange (fen uci)
+         (let ((p (pos-from-fen fen)))
+           (see p (parse-uci-move p uci)))))
+  (check "taking an undefended pawn wins it"
+         (exchange "4k3/8/8/3p4/8/8/3R4/4K3 w - - 0 1" "d2d5") 100)
+  (check "rook takes a pawn defended by a pawn: loses rook for pawn"
+         (exchange "4k3/8/4p3/3p4/8/8/3R4/4K3 w - - 0 1" "d2d5") -400)
+  (check "a second rook behind the first is seen through (x-ray)"
+         (exchange "4k3/8/4p3/3p4/8/8/3R4/3RK3 w - - 0 1" "d2d5") -300)
+  (check "knight takes a defended knight: even"
+         (exchange "4k3/8/2p5/3n4/8/2N5/8/4K3 w - - 0 1" "c3d5") 0)
+  (check "pawn takes a defended queen: wins queen for pawn"
+         (exchange "4k3/8/2p5/3q4/4P3/8/8/4K3 w - - 0 1" "e4d5") 800)
+  (check "the side to recapture may decline a losing recapture"
+         ;; Black's queen is the only defender: retaking would lose it to the rook behind.
+         (exchange "3qk3/8/8/3p4/8/8/3R4/3RK3 w - - 0 1" "d2d5") 100))
+(check "exchange evaluation leaves the board untouched"
+       (let* ((fen "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+              (p (pos-from-fen fen)))
+         (dolist (m (legal-moves p)) (see p m))
+         (pos-to-fen p))
+       "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+
+(section "feature switches")
+(flet ((best (fen depth)
+         (tt-clear)
+         (let ((p (pos-from-fen fen)))
+           (move-uci (search-result-best-move (search-position p :max-depth depth))))))
+  (set-engine-features :activity nil :see nil :lmr nil :aspiration nil :delta nil)
+  (check "first engine (all features off) still mates in 2"
+         (best "7k/8/5K2/8/8/8/8/6R1 w - - 0 1" 4) "f6f7")
+  (check "first engine evaluates the start position as balanced"
+         (evaluate (pos-from-fen +start-fen+)) 0)
+  (set-engine-features)
+  (check "full engine finds the quiet first move of a mate in 2"
+         ;; Kf7 is a quiet king move tried late: reductions must not hide it.
+         (best "7k/8/5K2/8/8/8/8/6R1 w - - 0 1" 4) "f6f7")
+  (check "full engine finds the knight fork"
+         (best "4k3/8/8/8/3n4/8/8/Q3K3 b - - 0 1" 4) "d4c2")
+  (check "breakdown includes the new terms and still sums to evaluate"
+         (let* ((p (pos-from-fen "r1bq1rk1/ppp2ppp/2n1pn2/3p4/3P1B2/2P1PN2/PP3PPP/RN1QKB1R w KQ - 0 1"))
+                (b (eval-breakdown p)))
+           (and (integerp (jget b "activity")) (integerp (jget b "kingSafety"))
+                (= (jget b "total") (evaluate p))))
+         t))
+
 (section "search")
 (flet ((best (fen depth)
          (tt-clear)

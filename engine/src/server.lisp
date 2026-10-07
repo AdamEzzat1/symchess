@@ -156,7 +156,7 @@
            (progn
              (broadcast "hello"
                         "protocol" 1
-                        "engine" "symchess 0.2.0"
+                        "engine" "symchess 0.3.0"
                         "lisp" (format nil "~A ~A" (lisp-implementation-type)
                                        (lisp-implementation-version))
                         "prolog" (jnull *prolog-version-string*)

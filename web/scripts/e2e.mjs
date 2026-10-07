@@ -101,7 +101,9 @@ const complete = await until(ofType('search_complete'), 'search_complete');
 check('search reports a best move and a principal variation', complete.bestMove !== null && complete.pv.length > 0);
 check('evaluation breakdown sums to its total', (() => {
   const e = complete.evalBreakdown;
-  return e.material + e.placement + e.pawnStructure + e.bishopPair === e.total;
+  // Every term the engine reports, whatever they are, must add up to its total.
+  const { total, ...terms } = e;
+  return Object.values(terms).reduce((sum, value) => sum + value, 0) === total;
 })());
 const explanation = await until(ofType('explanation'), 'explanation');
 check('explanation is about the move the search chose', explanation.move.uci === complete.bestMove.uci);

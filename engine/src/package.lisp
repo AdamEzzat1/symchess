@@ -9,6 +9,7 @@
    #:perft #:move-uci #:move-san #:parse-uci-move
    ;; eval / search
    #:evaluate #:eval-breakdown #:search-position #:tt-clear
+   #:set-engine-features #:see
    #:search-result-best-move #:search-result-score #:search-result-depth
    #:search-result-nodes #:search-result-pv #:search-result-time-ms
    ;; json

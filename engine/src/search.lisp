@@ -1,5 +1,6 @@
-;;;; search.lisp -- iterative deepening, principal-variation alpha-beta,
-;;;; quiescence, transposition table, move ordering, time control.
+;;;; search.lisp -- iterative deepening with aspiration windows,
+;;;; principal-variation alpha-beta with late move reductions, quiescence,
+;;;; static exchange evaluation, transposition table, move ordering, time control.
 ;;;;
 ;;;; Nothing in this file calls Prolog. Symbolic knowledge enters only as
 ;;;; ROOT-HINTS: a move -> bonus table computed once before the search starts
@@ -110,8 +111,107 @@
               (and (sctx-stop-fn ctx) (funcall (sctx-stop-fn ctx))))
       (setf (sctx-abort ctx) t))))
 
+;;; ------------------------------------------------ static exchange evaluation
+;;; "If I take here and we both keep recapturing with our cheapest piece, who
+;;; comes out ahead?" Answered on the board alone, without searching.
+
+(sb-ext:define-load-time-global **see-value**
+    (make-array 7 :element-type 'fixnum :initial-contents '(0 100 320 330 500 900 20000)))
+(declaim (type (simple-array fixnum (7)) **see-value**))
+
+(defun least-attacker (b sq side)
+  "Square of SIDE's least valuable piece attacking SQ on board B, or -1.
+Pieces already lifted off B are seen through, which is what finds x-rays."
+  (declare (type board-array b) (type fixnum sq side))
+  (let ((pawn (* side +pawn+)))
+    (dolist (d '(15 17))
+      (let ((from (- sq (* side (the fixnum d)))))
+        (when (and (>= from 0) (on-board-p from) (= (aref b from) pawn))
+          (return-from least-attacker from)))))
+  (let ((knight (* side +knight+)))
+    (dotimes (i 8)
+      (let ((from (+ sq (aref **knight-offsets** i))))
+        (when (and (>= from 0) (on-board-p from) (= (aref b from) knight))
+          (return-from least-attacker from)))))
+  (let ((bishop (* side +bishop+)) (rook (* side +rook+)) (queen (* side +queen+))
+        (rook-sq -1) (queen-sq -1))
+    (declare (type fixnum rook-sq queen-sq))
+    (dotimes (i 4)
+      (let ((d (aref **bishop-offsets** i)))
+        (loop for from fixnum = (+ sq d) then (+ from d)
+              while (and (>= from 0) (on-board-p from))
+              do (let ((pc (aref b from)))
+                   (when (/= pc 0)
+                     (cond ((= pc bishop) (return-from least-attacker from))
+                           ((= pc queen) (setf queen-sq from)))
+                     (return))))))
+    (dotimes (i 4)
+      (let ((d (aref **rook-offsets** i)))
+        (loop for from fixnum = (+ sq d) then (+ from d)
+              while (and (>= from 0) (on-board-p from))
+              do (let ((pc (aref b from)))
+                   (when (/= pc 0)
+                     (cond ((= pc rook) (setf rook-sq from))
+                           ((= pc queen) (setf queen-sq from)))
+                     (return))))))
+    (when (>= rook-sq 0) (return-from least-attacker rook-sq))
+    (when (>= queen-sq 0) (return-from least-attacker queen-sq)))
+  (let ((king (* side +king+)))
+    (dotimes (i 8)
+      (let ((from (+ sq (aref **king-offsets** i))))
+        (when (and (>= from 0) (on-board-p from) (= (aref b from) king))
+          (return-from least-attacker from)))))
+  -1)
+
+(defun see (p m)
+  "Static exchange evaluation of move M: the material, in centipawns, its mover
+ends up winning (negative: losing) once every profitable recapture is made."
+  (declare (type pos p) (type fixnum m))
+  (let* ((b (pos-board p))
+         (from (move-from m))
+         (to (move-to m))
+         (side (pos-side p))
+         (promo (move-promo m))
+         (gain (make-array 34 :element-type 'fixnum :initial-element 0))
+         (squares (make-array 34 :element-type 'fixnum :initial-element 0))
+         (pieces (make-array 34 :element-type 'fixnum :initial-element 0))
+         (lifted 0)
+         (d 0)
+         ;; the piece now standing on TO, which the next capture would win
+         (standing (if (plusp promo) promo (abs (aref b from)))))
+    (declare (type fixnum from to side promo lifted d standing)
+             (dynamic-extent gain squares pieces))
+    (flet ((lift (sq)
+             (setf (aref squares lifted) sq
+                   (aref pieces lifted) (aref b sq)
+                   (aref b sq) 0)
+             (incf lifted)))
+      (setf (aref gain 0)
+            (+ (if (move-ep-p m) 100 (aref **see-value** (abs (aref b to))))
+               (if (plusp promo) (- (aref **see-value** promo) 100) 0)))
+      (when (move-ep-p m) (lift (- to (* 16 side))))
+      (lift from)
+      (setf side (- side))
+      (loop
+        (let ((sq (least-attacker b to side)))
+          (declare (type fixnum sq))
+          (when (or (< sq 0) (>= d 31)) (return))
+          (incf d)
+          (setf (aref gain d) (- (aref **see-value** standing) (aref gain (1- d)))
+                standing (abs (aref b sq)))
+          (lift sq)
+          (setf side (- side))))
+      ;; Walk back: at each step the side to move may decline to recapture.
+      (loop while (plusp d)
+            do (setf (aref gain (1- d)) (- (max (- (aref gain (1- d))) (aref gain d))))
+               (decf d))
+      (dotimes (i lifted)
+        (setf (aref b (aref squares i)) (aref pieces i)))
+      (aref gain 0))))
+
 ;;; ---------------------------------------------------------- move ordering
-;;; Order: hash move, captures by MVV-LVA, killer moves, history heuristic.
+;;; Order: hash move, winning and even captures by MVV-LVA, killer moves,
+;;; history heuristic, then captures that lose material (negative scores).
 ;;; At the root only, Prolog's hint bonus is added on top.
 
 (defun score-moves (p ctx moves scores n sp tt-move)
@@ -128,10 +228,16 @@
              (score
                (cond ((= m tt-move) 10000000)
                      ((move-capture-p m)
-                      (let ((victim (if (move-ep-p m) +pawn+ (abs (aref b (move-to m)))))
-                            (attacker (abs (aref b (move-from m)))))
-                        (+ 1000000 (* 16 victim) (- attacker)
-                           (if (plusp (move-promo m)) 500 0))))
+                      (let* ((victim (if (move-ep-p m) +pawn+ (abs (aref b (move-to m)))))
+                             (attacker (abs (aref b (move-from m))))
+                             (mvv-lva (+ (* 16 victim) (- attacker)
+                                         (if (plusp (move-promo m)) 500 0))))
+                        ;; Only a dearer piece taking a cheaper one can lose
+                        ;; material, so only those are worth an exchange count.
+                        (if (and **use-see** (> attacker victim) (zerop (move-promo m))
+                                 (< (the fixnum (see p m)) -50))
+                            (- mvv-lva 200000)
+                            (+ 1000000 mvv-lva))))
                      ((plusp (move-promo m)) (+ 900000 (move-promo m)))
                      ((= m k1) 800000)
                      ((= m k2) 790000)
@@ -172,7 +278,9 @@
 
 (defun quiesce (p ctx alpha beta sp)
   "Search captures until the position is quiet, so static eval is not taken
-in the middle of an exchange. Simplification: checks are not extended here."
+in the middle of an exchange. Captures that lose material are not tried, nor
+are captures that could not lift the score to alpha even if they won the
+piece for free. Simplification: checks are not extended here."
   (declare (type pos p) (type sctx ctx) (type fixnum alpha beta sp))
   (incf (sctx-nodes ctx))
   (check-limits ctx)
@@ -190,8 +298,19 @@ in the middle of an exchange. Simplification: checks are not extended here."
       (score-moves p ctx moves scores n sp 0)
       (dotimes (i n)
         (pick-best moves scores i n)
+        ;; Sorted, so the first losing capture means only losing ones remain.
+        (when (minusp (aref scores i)) (return))
         (let ((m (aref moves i)))
-          (when (make-move p m)
+          (when (and (not (and **use-delta**
+                               (move-capture-p m)
+                               (zerop (move-promo m))
+                               (< (+ stand 200
+                                     (aref **see-value**
+                                           (if (move-ep-p m)
+                                               +pawn+
+                                               (abs (aref (pos-board p) (move-to m))))))
+                                  alpha)))
+                     (make-move p m))
             (let ((score (- (the fixnum (quiesce p ctx (- beta) (- alpha) (1+ sp))))))
               (declare (type fixnum score))
               (unmake-move p)
@@ -240,25 +359,42 @@ in the middle of an exchange. Simplification: checks are not extended here."
              (best-score (- +inf+))
              (best-move 0)
              (legal 0)
-             (original-alpha alpha))
-        (declare (type move-array moves scores) (type fixnum n best-score best-move legal))
+             (original-alpha alpha)
+             (k1 (aref (sctx-killers ctx) (* 2 sp)))
+             (k2 (aref (sctx-killers ctx) (1+ (* 2 sp)))))
+        (declare (type move-array moves scores)
+                 (type fixnum n best-score best-move legal k1 k2))
         (score-moves p ctx moves scores n sp tt-move)
         (dotimes (i n)
           (pick-best moves scores i n)
           (let ((m (aref moves i)))
             (when (make-move p m)
               (incf legal)
-              (let ((score
-                      (if (= legal 1)
-                          (- (the fixnum (negamax p ctx (1- depth) (- beta) (- alpha) (1+ sp) t)))
-                          ;; PVS: prove later moves are worse with a null window
-                          (let ((s (- (the fixnum (negamax p ctx (1- depth) (- (1+ alpha))
-                                                           (- alpha) (1+ sp) t)))))
-                            (if (and (> s alpha) (< s beta))
-                                (- (the fixnum (negamax p ctx (1- depth) (- beta) (- alpha)
-                                                        (1+ sp) t)))
-                                s)))))
-                (declare (type fixnum score))
+              (let* (;; Late move reduction: with good ordering, a quiet move
+                     ;; tried this late is rarely best, so look at it less
+                     ;; deeply first and only search it properly if it surprises.
+                     (reduction
+                       (if (and **use-lmr** (>= depth 3) (> legal 3) (not in-check)
+                                (not (move-capture-p m)) (zerop (move-promo m))
+                                (/= m k1) (/= m k2)
+                                (not (in-check-p p))) ; the move just made gives check
+                           (if (and (>= depth 6) (> legal 8)) 2 1)
+                           0))
+                     (score
+                       (if (= legal 1)
+                           (- (the fixnum (negamax p ctx (1- depth) (- beta) (- alpha) (1+ sp) t)))
+                           ;; PVS: prove later moves are worse with a null window
+                           (let ((s (- (the fixnum (negamax p ctx (- depth 1 reduction)
+                                                            (- (1+ alpha)) (- alpha) (1+ sp) t)))))
+                             (declare (type fixnum s))
+                             (when (and (plusp reduction) (> s alpha))
+                               (setf s (- (the fixnum (negamax p ctx (1- depth) (- (1+ alpha))
+                                                               (- alpha) (1+ sp) t)))))
+                             (if (and (> s alpha) (< s beta))
+                                 (- (the fixnum (negamax p ctx (1- depth) (- beta) (- alpha)
+                                                         (1+ sp) t)))
+                                 s)))))
+                (declare (type fixnum reduction score))
                 (unmake-move p)
                 (when (sctx-abort ctx) (return-from negamax 0))
                 (when (> score best-score)
@@ -289,6 +425,29 @@ in the middle of an exchange. Simplification: checks are not extended here."
 
 ;;; ---------------------------------------------------- iterative deepening
 
+(defun root-search (p ctx depth previous)
+  "One iteration from the root. From depth 4 on it first tries a narrow window
+around the PREVIOUS iteration's score, widening it whenever the score falls
+outside: most iterations confirm the last score and finish sooner."
+  (declare (type pos p) (type sctx ctx) (type fixnum depth previous))
+  (if (or (not **use-aspiration**) (< depth 4) (> (abs previous) +mate-bound+))
+      (negamax p ctx depth (- +inf+) +inf+ 0 nil)
+      (let* ((delta 40)
+             (alpha (- previous delta))
+             (beta (+ previous delta)))
+        (declare (type fixnum delta alpha beta))
+        (loop
+          (let ((score (negamax p ctx depth alpha beta 0 nil)))
+            (declare (type fixnum score))
+            (cond ((sctx-abort ctx) (return score))
+                  ((<= score alpha)
+                   (setf delta (* delta 3)
+                         alpha (if (> delta 700) (- +inf+) (- previous delta))))
+                  ((>= score beta)
+                   (setf delta (* delta 3)
+                         beta (if (> delta 700) +inf+ (+ previous delta))))
+                  (t (return score))))))))
+
 (defun search-position (p &key (max-depth 6) time-ms stop-fn on-iteration hints)
   "Search a COPY of P. ON-ITERATION, if given, is called with a SEARCH-RESULT
 after every completed depth. HINTS is an optional hash-table move -> bonus.
@@ -304,7 +463,7 @@ Returns the result of the last fully completed iteration."
                                      :pv (and legal (list (first legal))))))
     (when (null legal) (return-from search-position result))
     (loop for depth from 1 to (min max-depth 60)
-          do (let ((score (negamax p ctx depth (- +inf+) +inf+ 0 nil)))
+          do (let ((score (root-search p ctx depth (search-result-score result))))
                ;; An aborted iteration returns garbage: keep the previous result.
                ;; Depth 1 is cheap enough that it is always allowed to finish.
                (when (and (sctx-abort ctx) (> depth 1)) (return))

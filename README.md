@@ -98,6 +98,13 @@ swipl -g run_tests -t halt knowledge/tests/test_knowledge.pl
 npm --prefix web test
 ```
 
+Is a change to the engine an improvement? Play the current engine against the
+first one (about five minutes; see the file for other match-ups):
+
+```bash
+sbcl --script engine/tests/selfplay.lisp
+```
+
 With the engine running, the end-to-end script drives a real session over the
 WebSocket and records the engine's messages for the frontend contract test:
 

@@ -3,7 +3,9 @@
 ;;;;
 ;;;; Step D/E of the verification loop: for each position, search the same
 ;;;; depth with and without Prolog's root hints and compare node counts and
-;;;; the chosen move. Hints only reorder root moves, so the score must match.
+;;;; the chosen move. Hints only reorder root moves. Since late move reductions
+;;;; were added, that order also decides which moves are searched less deeply,
+;;;; so the score can occasionally differ as well as the node count.
 
 (require :asdf)
 (asdf:load-asd (merge-pathnames "../symchess.asd" *load-truename*))
@@ -64,6 +66,27 @@
   (format t "  kiwipete depth ~D: ~:D nodes in ~D ms (~:D nodes/s)~%"
           (search-result-depth r) (search-result-nodes r) (search-result-time-ms r)
           (floor (* 1000 (search-result-nodes r)) (max 1 (search-result-time-ms r)))))
+
+(format t "~&~%== first engine against current engine: reaching depth 7~%")
+(format t "  ~16A ~12A ~8A ~12A ~8A ~8A~%" "position" "old nodes" "old ms" "new nodes" "new ms" "speed-up")
+(let ((old-ms 0) (new-ms 0))
+  (dolist (entry *positions*)
+    (destructuring-bind (name fen) entry
+      (flet ((run ()
+               (tt-clear)
+               (search-position (pos-from-fen fen) :max-depth 7)))
+        (let* ((old (progn (set-engine-features :activity nil :see nil :lmr nil
+                                                :aspiration nil :delta nil)
+                           (run)))
+               (new (progn (set-engine-features) (run)))
+               (t1 (max 1 (search-result-time-ms old)))
+               (t2 (max 1 (search-result-time-ms new))))
+          (incf old-ms t1)
+          (incf new-ms t2)
+          (format t "  ~16A ~12:D ~8D ~12:D ~8D ~7,1Fx~%" name
+                  (search-result-nodes old) t1 (search-result-nodes new) t2 (/ t1 t2))))))
+  (format t "~%  total: ~D ms old, ~D ms new (~,1Fx)~%" old-ms new-ms (/ old-ms (max 1 new-ms))))
+(set-engine-features)
 
 (stop-prolog)
 (sb-ext:exit :code 0)

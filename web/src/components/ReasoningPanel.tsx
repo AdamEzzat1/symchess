@@ -309,6 +309,18 @@ export function ReasoningPanel({
                           <dt>Bishop pair</dt>
                           <dd>{signed(search.evalBreakdown.bishopPair)}</dd>
                         </div>
+                        {search.evalBreakdown.activity !== undefined && (
+                          <div>
+                            <dt>Activity</dt>
+                            <dd>{signed(search.evalBreakdown.activity)}</dd>
+                          </div>
+                        )}
+                        {search.evalBreakdown.kingSafety !== undefined && (
+                          <div>
+                            <dt>King safety</dt>
+                            <dd>{signed(search.evalBreakdown.kingSafety)}</dd>
+                          </div>
+                        )}
                         <div>
                           <dt>Static total</dt>
                           <dd>{signed(search.evalBreakdown.total)}</dd>
