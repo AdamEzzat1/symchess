@@ -212,7 +212,7 @@ swipl -g run_tests -t halt knowledge/tests/test_knowledge.pl
 npm --prefix web test
 ```
 
-Are the explanations right? Fifty positions with hand-written answers check
+Are the explanations right? Sixty-six positions with hand-written answers check
 the tactical facts Prolog reports, the move the search plays, and the status
 the explanation gives each idea, each scored separately. The method, results
 and known misses are in [docs/ANALYSIS_CREDIBILITY.md](docs/ANALYSIS_CREDIBILITY.md).
@@ -221,12 +221,30 @@ and known misses are in [docs/ANALYSIS_CREDIBILITY.md](docs/ANALYSIS_CREDIBILITY
 sbcl --script engine/tests/credibility.lisp
 ```
 
-Is a change to the engine an improvement? Play the current engine against the
-first one (about five minutes; see the file for other match-ups):
+Is a change to the engine an improvement? One runner measures every named
+configuration (the first engine, each feature alone, everything on, everything
+on with Prolog's hints) and writes what it found to `results/`, with the date,
+machine, commit, a fingerprint of the sources, and the command. About a minute:
+
+```bash
+sbcl --script engine/tests/experiment.lisp
+```
+
+Seven self-play matches of 24 games each, about half an hour:
+
+```bash
+sbcl --script engine/tests/experiment.lisp matches
+```
+
+One match-up by itself, printed and not recorded (about five minutes; see the
+file for the names):
 
 ```bash
 sbcl --script engine/tests/selfplay.lisp
 ```
+
+The results page in the app is built from those files. `credibility.lisp`
+above records its run the same way.
 
 With the engine running, the end-to-end script drives a real session over the
 WebSocket and records the engine's messages for the frontend contract test:
@@ -255,6 +273,7 @@ engine/      Common Lisp: board, movegen, eval, search, Prolog bridge, WebSocket
 knowledge/   Prolog: attack geometry, tactics, structure, move motifs, plans, rendering
 web/         Vite + React + TypeScript frontend
 protocol/    Engine messages captured by the e2e script (contract-test fixture)
+results/     Recorded runs of the measuring scripts; the results page reads these
 docs/        Architecture draft
 logs/        Per-session event logs and Prolog stderr (git-ignored)
 ```

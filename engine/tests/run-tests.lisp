@@ -470,6 +470,25 @@
       (check "asking about the engine's own move says so"
              (list (getf-string same "verdict") (getf-string same "isBest") (getf-string same "lossCp"))
              '("best" :true :null)))
+    ;; A warning about a sacrifice that mates. Prolog's reply is written out by
+    ;; hand here, so the check runs without Prolog.
+    (let* ((fen "1r4k1/5ppp/8/8/8/8/3Q1PPP/3R2K1 w - - 0 1")
+           (p (pos-from-fen fen))
+           (warning (obj "kind" "hangs_piece" "score" -960 "targets" (list "d8")
+                         "text" "the queen on d8 can be taken for less than it is worth."
+                         "facts" '()))
+           (analysis (obj "facts" '() "plans" '()
+                          "moves" (list (obj "uci" "d2d8" "score" -660 "motifs" (list warning)))))
+           (best (progn (tt-clear) (search-position p :max-depth 4)))
+           (answer (build-counterfactual p best best analysis))
+           (item (find "hangs_piece" (getf-string answer "items")
+                       :key (lambda (i) (jget i "motif")) :test #'equal)))
+      (check "the search finds the queen sacrifice that mates"
+             (move-uci (search-result-best-move best)) "d2d8")
+      (check "a warning about a sacrifice the search rates best is overruled, not confirmed"
+             (jget item "status") "overruled")
+      (check "and the sentence says the material really is given up"
+             (and (search "a sacrifice" (jget item "text")) t) t))
     (check "the position is left as it was"
            (let ((p (pos-from-fen "4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1")))
              (build-counterfactual p (search-position p :max-depth 3)
@@ -662,6 +681,67 @@
          (let ((lines (session (format nil "position fen nonsense~%flibble~%isready~%quit~%"))))
            (list (length lines) (first (last lines))))
          '(3 "readyok")))
+
+(section "experiments")
+(check "a configuration name stands for exact switches"
+       (list (features-for "old") (features-for "lmr") (features-for "no-see") (features-for "new"))
+       '((:activity nil :see nil :lmr nil :aspiration nil :delta nil)
+         (:activity nil :see nil :lmr t :aspiration nil :delta nil)
+         (:activity t :see nil :lmr t :aspiration t :delta t)
+         (:activity t :see t :lmr t :aspiration t :delta t)))
+(check "an unknown configuration is an error, not a silent default"
+       (handler-case (progn (features-for "turbo") :no-error) (error () :error))
+       :error)
+(check "only the hints configuration asks Prolog" (list (configure "new") (configure "hints")) '(nil t))
+(set-engine-features)
+(check "every listed configuration can be described"
+       (every (lambda (entry)
+                (let ((o (configuration-object (first entry))))
+                  (and (plusp (length (jget o "description"))) (objp (jget o "features")))))
+              *experiment-configurations*)
+       t)
+
+(let* ((positions '(("fork" "r3k2r/ppp2ppp/2n5/3N4/8/8/PPP2PPP/R3K2R w KQkq - 0 1")
+                    ("ending" "8/5pk1/6p1/8/3R4/6P1/r4PK1/8 w - - 0 1")))
+       (first-run (measure-depth "new" positions 3))
+       (again (measure-depth "new" positions 3))
+       (old (measure-depth "old" positions 3)))
+  (check "a fixed-depth measure gives the same count every time"
+         (jget first-run "nodes") (jget again "nodes"))
+  (check "and the same moves" (jget first-run "moves") (jget again "moves"))
+  (check "it searched every position to the depth asked"
+         (list (jget first-run "positions") (jget first-run "depth") (length (jget first-run "moves")))
+         '(2 3 2))
+  (check "a different configuration does different work"
+         (= (jget old "nodes") (jget first-run "nodes")) nil)
+  (check "measuring leaves the engine with everything switched on"
+         (list **eval-activity** **use-see** **use-lmr** **use-aspiration** **use-delta**)
+         '(t t t t t)))
+
+(let ((row (measure-labelled-moves
+            "new"
+            '(("mate" "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1" ("e1e8") nil)
+              ("wrong label" "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1" ("g1h1") nil)
+              ("avoided" "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1" nil ("e1e8")))
+            3 nil)))
+  (check "a labelled move counts only when a right move is played and no wrong one"
+         (list (jget row "right") (jget row "positions")
+               (mapcar (lambda (m) (jget m "position")) (jget row "missed")))
+         '(1 3 ("wrong label" "avoided"))))
+
+(check "a match plays every opening with both colours and adds up"
+       (let ((m (play-match "new" "new" 1 :openings '(("One opening" "e2e4" "e7e5")))))
+         (list (jget m "games") (+ (jget m "wins") (jget m "draws") (jget m "losses"))))
+       '(2 2))
+(check "pretty JSON says the same as plain JSON"
+       (let ((value (obj "a" 1 "list" '(1 2 3) "rows" (list (obj "x" "y" "ok" :true) (obj)) "none" '())))
+         (equal (json-decode (with-output-to-string (out) (write-json-pretty value out)))
+                (json-decode (json-encode value))))
+       t)
+(check "the source fingerprint is stable and 32 hex digits"
+       (let ((a (source-digest)))
+         (list (length a) (string= a (source-digest))))
+       '(32 t))
 
 (section "json and websocket primitives")
 (check "json round trip"

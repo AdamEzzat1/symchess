@@ -136,7 +136,7 @@ have a legal capture with a positive exchange value."
 
 ;;; -------------------------------------------------------------------- the run
 
-(defun run-set (title positions)
+(defun run-set (key title positions)
  (let ((kinds (make-hash-table :test #'equal))   ; kind -> (tp fp fn)
       (categories (make-hash-table :test #'equal))
       (category-order '())
@@ -357,7 +357,36 @@ have a legal capture with a positive exchange value."
       (if deep-disagreements
           (dolist (x (reverse deep-disagreements))
             (format t "   ~A: the deeper search prefers ~A (reached depth ~D)~%" (first x) (second x) (third x)))
-          (format t "   the deeper search agrees with every label~%"))))))
+          (format t "   the deeper search agrees with every label~%")))
+
+    ;; ------------------------------------------------- the same, for the record
+    (let ((tp 0) (fp 0) (fn 0))
+      (dolist (kind *audited*)
+        (destructuring-bind (a b c &rest ignore) (gethash kind kinds (list 0 0 0 0 0))
+          (declare (ignore ignore))
+          (incf tp a) (incf fp b) (incf fn c)))
+      (flet ((named (x) (format nil "~A: ~A on ~A" (first x) (first (second x)) (second (second x)))))
+        (obj "id" key
+             "title" title
+             "positions" (length positions)
+             "prolog" (jbool prolog-ok)
+             "motifs" (obj "found" tp "extra" fp "missed" fn
+                           "reportedButNotThere" (mapcar #'named (reverse false-positives))
+                           "thereButNotReported" (mapcar #'named (reverse false-negatives)))
+             "moves" (obj "right" move-right "of" move-total
+                          "missed" (mapcar (lambda (x) (format nil "~A: played ~A" (first x) (second x)))
+                                           (reverse move-misses)))
+             "statuses" (obj "right" says-right "of" says-total)
+             "confirmedBacked" (obj "right" (- confirmed-total (length confirmed-bad)) "of" confirmed-total)
+             "whyNot" (obj "right" why-right "of" why-total)
+             "warningsConfirmed" (obj "right" (- warned-total (length warned-bad)) "of" warned-total)
+             "traceable" (obj "right" (- traced-total (length traced-bad)) "of" traced-total)
+             "prologSentences" (obj "confirmed" (first tally) "unconfirmed" (second tally)
+                                    "overruled" (third tally) "unchecked" (fourth tally))
+             "topMove" (obj "same" same-move "of" ranked
+                            "differedWithLabel" differ-labelled
+                            "searchRight" differ-search-right
+                            "prologRight" differ-prolog-right)))))))
 
 (setf *known-rules*
       (mapcar (lambda (rule) (jget rule "id")) (field (rule-index-fields) "rules")))
@@ -365,6 +394,22 @@ have a legal capture with a positive exchange value."
 (format t "SymChess explanation benchmark~%")
 (format t "rule index: ~D entries~%" (length *known-rules*))
 (format t "search limits: depth ~D, ~D ms (Club level)~%" *depth* *time-ms*)
-(run-set "Development set (the rules were corrected against these)" *credibility-positions*)
-(run-set "Held-out set (labelled after the rules were frozen)" *held-out-positions*)
+(let ((sets (list
+             (run-set "development" "Development set (the rules were corrected against these)"
+                      *credibility-positions*)
+             (run-set "held-out" "Held-out set (labelled after the rules of milestone 5 were frozen)"
+                      *held-out-positions*)
+             (run-set "second-held-out" "Second held-out set (labelled for milestone 9, before the pin rule changed)"
+                      *second-held-out-positions*))))
+  ;; Only the plain run is recorded: the other modes answer different questions.
+  (when (null *mode*)
+    (format t "~%written to ~A~%"
+            (enough-namestring
+             (write-results
+              "credibility"
+              (obj "run" (run-metadata "sbcl --script engine/tests/credibility.lisp")
+                   "what" "Labelled positions: does Prolog report the tactical facts that are really there, does the search play a right move, and does the explanation give each idea the right status?"
+                   "depth" *depth*
+                   "timeLimitMs" *time-ms*
+                   "sets" sets))))))
 (stop-prolog)

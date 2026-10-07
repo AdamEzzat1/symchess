@@ -116,6 +116,26 @@ Added in milestone 8. Every sentence of every explanation and comparison in the 
 
 The first row shows the mechanism has no gaps. It says nothing about whether an explanation is right; the earlier sections do that. The others measure Prolog's unsearched ranking against the search. See `WORKBENCH_PLAN.md`, section 10.
 
+### A second held-out set
+
+Added in milestone 9: 16 positions, labelled before any rule was changed and before any was run. Four sit at the edge of the pin rule, four are endings, three are mates and sacrifices, and five are crowded opening positions with every tactical fact labelled.
+
+Run against the rules as they stood, it found the pin it was written to probe (13 of 14 real facts found) and one fault that was not predicted: a warning about a mating queen sacrifice was called "confirmed". Both were then fixed, so for those two rules this set is no longer untouched.
+
+Current figures, from `results/credibility.json`:
+
+| Measure | Development (39) | Held-out (11) | Second held-out (16) |
+| --- | --- | --- | --- |
+| Tactical facts reported that were really there | 41 of 41 | 18 of 18 | 14 of 15 |
+| Real tactical facts that were found | 41 of 41 | 18 of 18 | 14 of 14 |
+| Right move played at Club level | 20 of 20 | 4 of 5 | 11 of 11 |
+| Explanation gave the labelled status | 9 of 9 | 3 of 3 | 8 of 8 |
+| "Why not?" rating matches the label | 20 of 20 | 5 of 5 | 12 of 12 |
+| Sentences that can be followed back | 266 of 266 | 80 of 80 | 147 of 147 |
+| Prolog's top-ranked move was the search's | 10 of 20 | 2 of 5 | 7 of 11 |
+
+The extra fact in the last column is deliberate: a bishop in front of its unguarded partner, which could step aside and guard it. The rule reads lines and not moves, so it calls that a pin.
+
 ### Without Prolog
 
 With Prolog unavailable the benchmark still runs. It reports that motif and explanation accuracy were not measured, and gives the same move accuracy (20 of 20 and 4 of 5), because the search never depended on Prolog.

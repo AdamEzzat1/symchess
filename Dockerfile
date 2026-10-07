@@ -11,6 +11,8 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
+# The results page is built from the recorded runs.
+COPY results/ /src/results/
 RUN npm run build
 
 # -------------------------------------------------------------------- sbcl

@@ -1,0 +1,171 @@
+{
+  "run": {
+    "date": "2026-10-07 15:16 UTC",
+    "command": "sbcl --script engine/tests/credibility.lisp",
+    "engine": "symchess 0.6.0",
+    "lisp": "SBCL 2.6.9",
+    "prolog": "SWI-Prolog 10.0.2",
+    "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
+    "sourceDigest": "409793dd18b6279520bbf68c0a80bb03",
+    "commit": "f060ac8",
+    "uncommittedChanges": true
+  },
+  "what": "Labelled positions: does Prolog report the tactical facts that are really there, does the search play a right move, and does the explanation give each idea the right status?",
+  "depth": 6,
+  "timeLimitMs": 2000,
+  "sets": [
+    {
+      "id": "development",
+      "title": "Development set (the rules were corrected against these)",
+      "positions": 39,
+      "prolog": true,
+      "motifs": {
+        "found": 41,
+        "extra": 0,
+        "missed": 0,
+        "reportedButNotThere": [],
+        "thereButNotReported": []
+      },
+      "moves": {
+        "right": 20,
+        "of": 20,
+        "missed": []
+      },
+      "statuses": {
+        "right": 9,
+        "of": 9
+      },
+      "confirmedBacked": {
+        "right": 13,
+        "of": 13
+      },
+      "whyNot": {
+        "right": 20,
+        "of": 20
+      },
+      "warningsConfirmed": {
+        "right": 4,
+        "of": 4
+      },
+      "traceable": {
+        "right": 266,
+        "of": 266
+      },
+      "prologSentences": {
+        "confirmed": 13,
+        "unconfirmed": 2,
+        "overruled": 11,
+        "unchecked": 28
+      },
+      "topMove": {
+        "same": 10,
+        "of": 20,
+        "differedWithLabel": 6,
+        "searchRight": 6,
+        "prologRight": 1
+      }
+    },
+    {
+      "id": "held-out",
+      "title": "Held-out set (labelled after the rules of milestone 5 were frozen)",
+      "positions": 11,
+      "prolog": true,
+      "motifs": {
+        "found": 18,
+        "extra": 0,
+        "missed": 0,
+        "reportedButNotThere": [],
+        "thereButNotReported": []
+      },
+      "moves": {
+        "right": 4,
+        "of": 5,
+        "missed": ["held-hanging-pawn: played e1e2"]
+      },
+      "statuses": {
+        "right": 3,
+        "of": 3
+      },
+      "confirmedBacked": {
+        "right": 5,
+        "of": 5
+      },
+      "whyNot": {
+        "right": 5,
+        "of": 5
+      },
+      "warningsConfirmed": {
+        "right": 0,
+        "of": 0
+      },
+      "traceable": {
+        "right": 80,
+        "of": 80
+      },
+      "prologSentences": {
+        "confirmed": 5,
+        "unconfirmed": 0,
+        "overruled": 3,
+        "unchecked": 9
+      },
+      "topMove": {
+        "same": 2,
+        "of": 5,
+        "differedWithLabel": 3,
+        "searchRight": 2,
+        "prologRight": 2
+      }
+    },
+    {
+      "id": "second-held-out",
+      "title": "Second held-out set (labelled for milestone 9, before the pin rule changed)",
+      "positions": 16,
+      "prolog": true,
+      "motifs": {
+        "found": 14,
+        "extra": 1,
+        "missed": 0,
+        "reportedButNotThere": ["new-bishop-that-can-step-back-and-guard: pin on e8"],
+        "thereButNotReported": []
+      },
+      "moves": {
+        "right": 11,
+        "of": 11,
+        "missed": []
+      },
+      "statuses": {
+        "right": 8,
+        "of": 8
+      },
+      "confirmedBacked": {
+        "right": 12,
+        "of": 12
+      },
+      "whyNot": {
+        "right": 12,
+        "of": 12
+      },
+      "warningsConfirmed": {
+        "right": 0,
+        "of": 0
+      },
+      "traceable": {
+        "right": 147,
+        "of": 147
+      },
+      "prologSentences": {
+        "confirmed": 12,
+        "unconfirmed": 0,
+        "overruled": 6,
+        "unchecked": 14
+      },
+      "topMove": {
+        "same": 7,
+        "of": 11,
+        "differedWithLabel": 4,
+        "searchRight": 4,
+        "prologRight": 0
+      }
+    }
+  ]
+}

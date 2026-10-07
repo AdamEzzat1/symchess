@@ -1,0 +1,186 @@
+{
+  "run": {
+    "date": "2026-10-07 15:16 UTC",
+    "command": "sbcl --script engine/tests/experiment.lisp matches 100",
+    "engine": "symchess 0.6.0",
+    "lisp": "SBCL 2.6.9",
+    "prolog": "SWI-Prolog 10.0.2",
+    "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
+    "sourceDigest": "409793dd18b6279520bbf68c0a80bb03",
+    "commit": "f060ac8",
+    "uncommittedChanges": true
+  },
+  "configurations": [
+    {
+      "name": "new",
+      "description": "Everything switched on: the engine as it plays.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true
+      },
+      "rootHints": false
+    },
+    {
+      "name": "old",
+      "description": "The first engine: every optional feature switched off.",
+      "features": {
+        "activity": false,
+        "see": false,
+        "lmr": false,
+        "aspiration": false,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "hints",
+      "description": "Everything switched on, and Prolog's ranking of the moves used to order them at the root. The time Prolog takes is counted.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true
+      },
+      "rootHints": true
+    },
+    {
+      "name": "activity",
+      "description": "The first engine plus the mobility, rook-file and king-shelter evaluation terms.",
+      "features": {
+        "activity": true,
+        "see": false,
+        "lmr": false,
+        "aspiration": false,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "see",
+      "description": "The first engine plus static exchange evaluation for ordering and pruning captures.",
+      "features": {
+        "activity": false,
+        "see": true,
+        "lmr": false,
+        "aspiration": false,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "lmr",
+      "description": "The first engine plus late move reductions.",
+      "features": {
+        "activity": false,
+        "see": false,
+        "lmr": true,
+        "aspiration": false,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "aspiration",
+      "description": "The first engine plus aspiration windows at the root.",
+      "features": {
+        "activity": false,
+        "see": false,
+        "lmr": false,
+        "aspiration": true,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "delta",
+      "description": "The first engine plus delta pruning in the quiescence search.",
+      "features": {
+        "activity": false,
+        "see": false,
+        "lmr": false,
+        "aspiration": false,
+        "delta": true
+      },
+      "rootHints": false
+    }
+  ],
+  "what": "Self-play: twelve openings, each played twice with colours swapped. Both sides get the same time per move, and the time Prolog takes is counted against the side that asks it.",
+  "openings": ["Open game","Queen's gambit","Sicilian","King's Indian","French","English","Reti","Caro-Kann","London","Scandinavian","Modern","Dutch"],
+  "complete": true,
+  "rows": [
+    {
+      "candidate": "new",
+      "baseline": "old",
+      "msPerMove": 100,
+      "games": 24,
+      "wins": 14,
+      "draws": 4,
+      "losses": 6,
+      "points": 66.667
+    },
+    {
+      "candidate": "hints",
+      "baseline": "new",
+      "msPerMove": 100,
+      "games": 24,
+      "wins": 2,
+      "draws": 6,
+      "losses": 16,
+      "points": 20.833
+    },
+    {
+      "candidate": "activity",
+      "baseline": "old",
+      "msPerMove": 100,
+      "games": 24,
+      "wins": 11,
+      "draws": 4,
+      "losses": 9,
+      "points": 54.167
+    },
+    {
+      "candidate": "see",
+      "baseline": "old",
+      "msPerMove": 100,
+      "games": 24,
+      "wins": 10,
+      "draws": 7,
+      "losses": 7,
+      "points": 56.250
+    },
+    {
+      "candidate": "lmr",
+      "baseline": "old",
+      "msPerMove": 100,
+      "games": 24,
+      "wins": 11,
+      "draws": 8,
+      "losses": 5,
+      "points": 62.500
+    },
+    {
+      "candidate": "aspiration",
+      "baseline": "old",
+      "msPerMove": 100,
+      "games": 24,
+      "wins": 7,
+      "draws": 8,
+      "losses": 9,
+      "points": 45.833
+    },
+    {
+      "candidate": "delta",
+      "baseline": "old",
+      "msPerMove": 100,
+      "games": 24,
+      "wins": 10,
+      "draws": 6,
+      "losses": 8,
+      "points": 54.167
+    }
+  ]
+}

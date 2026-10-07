@@ -2221,3 +2221,11 @@ select,
   border-top: 0;
   color: var(--muted);
 }
+
+/* Where a recorded table's figures came from. */
+.sheet-run {
+  margin-top: 6px;
+  font: 0.74rem/1.5 var(--mono);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

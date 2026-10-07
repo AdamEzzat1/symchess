@@ -264,6 +264,19 @@ test(unattacked_piece_is_not_trapped) :-
     ctx("4k3/8/8/8/8/1p6/P1p5/BK6 b - - 0 1", Ctx),
     \+ trapped(Ctx, _).
 
+test(piece_in_front_of_an_unguarded_piece_of_equal_value_is_pinned, [nondet]) :-
+    ctx("k3b3/8/8/4n3/8/8/8/4R2K w - - 0 1", Ctx),
+    sq(e5, E5),
+    pin(Ctx, pin(relative, white, rook, _, knight, E5, bishop, _)).
+
+test(no_pin_when_the_equal_piece_behind_is_guarded) :-
+    ctx("3kb3/8/8/4n3/8/8/8/4R2K w - - 0 1", Ctx),
+    \+ pin(Ctx, pin(_, white, _, _, knight, _, _, _)).
+
+test(no_pin_of_a_pawn_to_a_pawn) :-
+    ctx("6k1/b7/8/8/3P4/8/5P2/7K w - - 0 1", Ctx),
+    \+ pin(Ctx, pin(_, black, _, _, pawn, _, _, _)).
+
 :- end_tests(tactics).
 
 % ----------------------------------------------------------------- structure

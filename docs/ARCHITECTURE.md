@@ -620,6 +620,17 @@ Each `explanation` and `counterfactual` also carries `agreement`: the engine's
 count of Prolog's sentences it confirmed, left unconfirmed, overruled or could
 not test, and whether Prolog's top-ranked move was the search's move.
 
+**How a measurement is recorded.** `engine/src/experiment.lisp` holds the named
+configurations (`features-for` turns a name into exact switches), three
+measures (work to a fixed depth, labelled moves played right, a self-play
+match) and `write-results`. Every results file starts with a `run` object: date,
+command, engine and Lisp versions, machine, git commit, whether the sources
+differed from that commit, and `sourceDigest`, an MD5 of every engine and rule
+source file. The digest is what ties a figure to a program: two files with the
+same digest came from the same sources whatever git says. The frontend imports
+`results/*.json` at build time (`web/src/results.ts`) and lays the numbers out;
+a frontend test fails if the three files were not produced by the same sources.
+
 **The second front door.** `engine/uci.lisp` runs `uci-loop`, which speaks the
 Universal Chess Interface on standard input and output. It shares the board,
 the move generator and the search with the WebSocket server and nothing else:

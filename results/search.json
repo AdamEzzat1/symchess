@@ -1,0 +1,321 @@
+{
+  "run": {
+    "date": "2026-10-07 15:51 UTC",
+    "command": "sbcl --script engine/tests/experiment.lisp",
+    "engine": "symchess 0.6.0",
+    "lisp": "SBCL 2.6.9",
+    "prolog": "SWI-Prolog 10.0.2",
+    "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
+    "sourceDigest": "409793dd18b6279520bbf68c0a80bb03",
+    "commit": "f060ac8",
+    "uncommittedChanges": true
+  },
+  "configurations": [
+    {
+      "name": "old",
+      "description": "The first engine: every optional feature switched off.",
+      "features": {
+        "activity": false,
+        "see": false,
+        "lmr": false,
+        "aspiration": false,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "activity",
+      "description": "The first engine plus the mobility, rook-file and king-shelter evaluation terms.",
+      "features": {
+        "activity": true,
+        "see": false,
+        "lmr": false,
+        "aspiration": false,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "see",
+      "description": "The first engine plus static exchange evaluation for ordering and pruning captures.",
+      "features": {
+        "activity": false,
+        "see": true,
+        "lmr": false,
+        "aspiration": false,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "lmr",
+      "description": "The first engine plus late move reductions.",
+      "features": {
+        "activity": false,
+        "see": false,
+        "lmr": true,
+        "aspiration": false,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "aspiration",
+      "description": "The first engine plus aspiration windows at the root.",
+      "features": {
+        "activity": false,
+        "see": false,
+        "lmr": false,
+        "aspiration": true,
+        "delta": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "delta",
+      "description": "The first engine plus delta pruning in the quiescence search.",
+      "features": {
+        "activity": false,
+        "see": false,
+        "lmr": false,
+        "aspiration": false,
+        "delta": true
+      },
+      "rootHints": false
+    },
+    {
+      "name": "new",
+      "description": "Everything switched on: the engine as it plays.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true
+      },
+      "rootHints": false
+    },
+    {
+      "name": "hints",
+      "description": "Everything switched on, and Prolog's ranking of the moves used to order them at the root. The time Prolog takes is counted.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true
+      },
+      "rootHints": true
+    }
+  ],
+  "depth": {
+    "what": "Positions searched to reach a fixed depth, with no time limit. The counts do not depend on the machine.",
+    "depth": 6,
+    "positions": ["start","italian","pinned knight","kiwipete","fork available","hanging piece","rook endgame","Open game","Queen's gambit","Sicilian","King's Indian","French","English","Reti","Caro-Kann","London","Scandinavian","Modern","Dutch"],
+    "rows": [
+      {
+        "configuration": "old",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 2353926,
+        "searchMs": 6035,
+        "prologMs": null,
+        "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
+      },
+      {
+        "configuration": "activity",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 2356883,
+        "searchMs": 8592,
+        "prologMs": null,
+        "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
+      },
+      {
+        "configuration": "see",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 1823471,
+        "searchMs": 4258,
+        "prologMs": null,
+        "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
+      },
+      {
+        "configuration": "lmr",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 639696,
+        "searchMs": 1842,
+        "prologMs": null,
+        "moves": ["b1c3","b1c3","b5c6","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","b1c3","g1f3","b1c3","g1f3","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
+      },
+      {
+        "configuration": "aspiration",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 2369802,
+        "searchMs": 4952,
+        "prologMs": null,
+        "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
+      },
+      {
+        "configuration": "delta",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 2076763,
+        "searchMs": 4562,
+        "prologMs": null,
+        "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
+      },
+      {
+        "configuration": "new",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 477061,
+        "searchMs": 1996,
+        "prologMs": null,
+        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","f1b5","g1f3","b1c3","g1f3","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
+      },
+      {
+        "configuration": "hints",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 476932,
+        "searchMs": 2034,
+        "prologMs": 1220,
+        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","f1b5","g1f3","e4e5","g1f3","d2d4","e4e5","b1c3","b1c3","b1c3","g1f3"]
+      }
+    ]
+  },
+  "moves": {
+    "what": "Benchmark positions with a labelled move where the configuration played a right move and no wrong one.",
+    "depth": 6,
+    "timeLimitMs": 2000,
+    "rows": [
+      {
+        "configuration": "old",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 34,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          },
+          {
+            "position": "held-queen-hit-by-a-pawn",
+            "played": "d5d3"
+          }
+        ]
+      },
+      {
+        "configuration": "activity",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 35,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          }
+        ]
+      },
+      {
+        "configuration": "see",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 33,
+        "missed": [
+          {
+            "position": "held-pin-on-a-rank",
+            "played": "e1f2"
+          },
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          },
+          {
+            "position": "held-queen-hit-by-a-pawn",
+            "played": "d5d3"
+          }
+        ]
+      },
+      {
+        "configuration": "lmr",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 35,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          }
+        ]
+      },
+      {
+        "configuration": "aspiration",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 34,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          },
+          {
+            "position": "held-queen-hit-by-a-pawn",
+            "played": "d5d3"
+          }
+        ]
+      },
+      {
+        "configuration": "delta",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 34,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          },
+          {
+            "position": "held-queen-hit-by-a-pawn",
+            "played": "d5d3"
+          }
+        ]
+      },
+      {
+        "configuration": "new",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 35,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          }
+        ]
+      },
+      {
+        "configuration": "hints",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 35,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -267,3 +267,94 @@
      :expect (("pin" "d1") ("hanging" "a1") ("hanging" "d1"))
      :best ("d1a1")
      :says (("captures_hanging" "confirmed")))))
+
+;;; A second held-out set, written for milestone 9 BEFORE the pin rule was
+;;; widened to equal-valued pieces and before any of these were run. It adds
+;;; what the first two sets lack: crowded opening positions labelled in full,
+;;; endings, mating attacks and sacrifices, and four positions aimed at the
+;;; pin rule's edge (two where an equal-valued pin is real or not, two where
+;;; the geometry looks like a pin and is not).
+(defparameter *second-held-out-positions*
+  '(;; ------------------------------------------------ pins of equal value
+    ("new-knight-tied-to-a-loose-bishop" "pins of equal value"
+     ;; If the knight moves the rook takes the bishop, with check. No square
+     ;; the knight can reach defends e8.
+     "k3b3/8/8/4n3/8/8/8/4R2K w - - 0 1"
+     :expect (("pin" "e5") ("hanging" "e5"))
+     :best ("e1e5")
+     :says (("captures_hanging" "confirmed")))
+    ("new-knight-in-front-of-a-guarded-bishop" "pins of equal value"
+     ;; The same, but the king guards the bishop: taking it would cost the rook.
+     "3kb3/8/8/4n3/8/8/8/4R2K w - - 0 1"
+     :expect (("hanging" "e5"))
+     :best ("e1e5"))
+    ("new-bishop-that-can-step-back-and-guard" "pins of equal value"
+     ;; Looks like a pin on e4, but the bishop can go to d3 or f3 and guard its
+     ;; partner, so moving it loses nothing. A rule that reads lines and not
+     ;; moves is expected to get this one wrong.
+     "4q1k1/8/8/8/4B3/8/4B3/6K1 w - - 0 1"
+     :expect (("hanging" "e4")))
+    ("new-pawn-in-front-of-a-pawn" "pins of equal value"
+     "6k1/b7/8/8/3P4/8/5P2/7K w - - 0 1"
+     :expect (("hanging" "d4")))
+    ;; ------------------------------------------------------------ endings
+    ("new-push-or-be-caught" "endings"
+     ;; The black king is one step outside the pawn's square. Only pushing now wins.
+     "8/8/8/8/P4k2/8/8/K7 w - - 0 1"
+     :expect ()
+     :best ("a4a5"))
+    ("new-queen-check-wins-the-rook" "endings"
+     "r5k1/8/8/8/8/8/8/3Q2K1 w - - 0 1"
+     :expect ()
+     :best ("d1d5")
+     :says (("creates_fork" "confirmed")))
+    ("new-knight-check-wins-the-queen" "endings"
+     "4k3/8/8/1q6/4N3/8/8/4K3 w - - 0 1"
+     :expect ()
+     :best ("e4d6")
+     :says (("creates_fork" "confirmed")))
+    ("new-attacked-queen-hits-back" "endings"
+     ;; The queen is attacked. Qc6+ saves it and wins the knight; Qe5+ does not (Ne7).
+     "4k3/8/8/3n4/8/2Q5/8/4K3 w - - 0 1"
+     :expect (("hanging" "c3"))
+     :best ("c3c6")
+     :says (("creates_fork" "confirmed")))
+    ;; ------------------------------------------- mates and sacrifices
+    ("new-back-rank-mate" "mates and sacrifices"
+     "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1"
+     :expect ()
+     :best ("e1e8")
+     :says (("gives_check" "confirmed")))
+    ("new-smothered-mate" "mates and sacrifices"
+     ;; Qg8+ Rxg8 Nf7 mate: the queen is given up.
+     "5r1k/6pp/7N/8/2Q5/8/8/6K1 w - - 0 1"
+     :expect (("hanging" "h6"))
+     :best ("c4g8")
+     :says (("gives_check" "confirmed")))
+    ("new-queen-given-up-on-the-back-rank" "mates and sacrifices"
+     ;; Qd8+ Rxd8 Rxd8 mate.
+     "1r4k1/5ppp/8/8/8/8/3Q1PPP/3R2K1 w - - 0 1"
+     :expect ()
+     :best ("d2d8")
+     :says (("gives_check" "confirmed")))
+    ;; ------------------------------------------------- crowded positions
+    ("new-quiet-italian" "crowded positions"
+     "r1bqk2r/ppp2ppp/2np1n2/2b1p3/2B1P3/2PP1N2/PP3PPP/RNBQK2R w KQkq - 0 6"
+     :expect ())
+    ("new-closed-ruy-lopez" "crowded positions"
+     ;; The bishop on b3 pins the f7 pawn to the king: ...f5 is illegal.
+     "r1bq1rk1/2p1bppp/p1np1n2/1p2p3/4P3/1BP2N1P/PP1P1PP1/RNBQR1K1 b - - 0 9"
+     :expect (("pin" "f7")))
+    ("new-queens-gambit-pin" "crowded positions"
+     "r1bqkb1r/pppn1ppp/4pn2/3p2B1/2PP4/2N5/PP2PPPP/R2QKBNR w KQkq - 2 5"
+     :expect (("pin" "f6") ("hanging" "c4")))
+    ("new-scholars-mate" "crowded positions"
+     "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"
+     :expect (("hanging" "h5") ("hanging" "e4") ("pin" "f7"))
+     :best ("h5f7")
+     :says (("gives_check" "confirmed")))
+    ("new-stop-the-scholars-mate" "crowded positions"
+     "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3"
+     :expect (("pin" "f7"))
+     :best ("g7g6" "d8e7" "d8f6" "g8h6")
+     :avoid ("g8f6"))))

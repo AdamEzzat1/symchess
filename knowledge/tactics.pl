@@ -70,9 +70,17 @@ harmless_pin(relative, pawn, 0/_).
 pin_kind(_, _, _, _, _, _, king, _, absolute) :- !.
 pin_kind(Ctx, C, PT, PSq, T, Sq, BT, BSq, relative) :-
     value(BT, VB), value(T, VT), value(PT, VP),
-    VB > VT,
-    % moving the pinned piece must actually cost something
-    ( VB > VP ; \+ attacked_by(Ctx, C, BSq) ),
+    (   VB > VT,
+        % moving the pinned piece must actually cost something
+        ( VB > VP ; \+ attacked_by(Ctx, C, BSq) )
+    ;   % A piece of the same value behind counts only if nothing guards it:
+        % then moving the front piece simply loses the one behind. (Whether
+        % the front piece could step aside AND guard it is a question about
+        % moves, which this layer does not ask.)
+        VB =:= VT,
+        BT \== pawn,
+        \+ attacked_by(Ctx, C, BSq)
+    ),
     % ...and the pinned piece must not simply be able to take the pinner
     \+ attack(Ctx, C, T, Sq, PSq).
 

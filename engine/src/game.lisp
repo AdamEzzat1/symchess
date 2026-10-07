@@ -27,6 +27,8 @@
 
 (defvar *log-stream* nil)
 (defvar *log-lock* (sb-thread:make-mutex :name "log"))
+(defparameter *engine-version* "symchess 0.6.0")
+
 (defvar *prolog-version-string* nil)
 
 ;; The transposition table is shared and unlocked, so exactly one search may
@@ -415,7 +417,7 @@ notices the closed socket and ends the session."
     ("check:capture_on_target" "search" "check" "engine/src/game.lisp, pv-captures-on-p"
      "A fork, pin or skewer is confirmed if the mover later captures on one of its target squares in the search's line, and unconfirmed if not.")
     ("check:warning" "search" "check" "engine/src/game.lisp, build-counterfactual"
-     "A Prolog warning about a move is confirmed if the search's line for that move ends at least one pawn of material down; unconfirmed if the search rates the move more than 0.6 pawns worse without that loss showing; overruled otherwise.")
+     "A Prolog warning about a move is confirmed if the search's line for that move ends at least one pawn of material down and the search rates the move worse than its best; unconfirmed if the search rates the move more than 0.6 pawns worse without that loss showing; overruled otherwise, including a sacrifice the search rates as its best.")
     ("check:warning_played" "search" "check" "engine/src/game.lisp, build-explanation"
      "A Prolog warning about the move the search chose is overruled: the search looked at the move and preferred it to every other.")
     ("check:top_move" "search" "check" "engine/src/game.lisp, build-explanation"
@@ -1148,7 +1150,15 @@ number from one of those two searches or a fact from Prolog, and says which."
                                   :check check :basis basis)))
                       (cond
                         ((minusp (jget motif "score" 0))
-                         (cond ((<= alt-swing -100)
+                         (cond ((and (<= alt-swing -100) (or same mate (<= loss 60)))
+                                ;; A sound sacrifice: the material does go, and
+                                ;; the search still rates the move as highly as
+                                ;; any. The warning was true and beside the point.
+                                (say "overruled"
+                                     (format nil "Prolog warned: ~A The material is given up in the search's line, and the search still rates the move ~A: a sacrifice." text (verdict-words verdict))
+                                     "check:warning"
+                                     (format nil "Overruled: the line after ~A ends ~,1F pawns of material down, but the search does not rate the move worse than its best." san (pawns alt-swing))))
+                               ((<= alt-swing -100)
                                 (say "confirmed"
                                      (format nil "Prolog warned: ~A The search agrees: its line loses material." text)
                                      "check:warning"

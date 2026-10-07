@@ -269,3 +269,85 @@ The first row is a check that the mechanism is complete, not a measure of qualit
 - A plan's chain ends at "the search does not test plans", except where a comparison reports that a move removes the plan's facts.
 - The description of a rule is the comment above it. A comment that goes stale would be shown as written; the source beside it would not.
 - Not re-timed on the hosted site. Locally Prolog takes 75 to 90 ms for a middlegame position with the new links.
+
+## 11. Milestone 9: results
+
+**Built.**
+
+| Piece | What it does |
+| --- | --- |
+| `engine/src/experiment.lisp` | Named configurations, three measures, and results files that carry their own run details and a fingerprint of the sources |
+| `engine/tests/experiment.lisp` | One runner: every configuration against two measures in about a minute, or seven self-play matches in about half an hour |
+| `results/search.json`, `matches.json`, `credibility.json` | The recorded runs |
+| A second held-out set | 16 positions labelled before any rule changed: four at the edge of the pin rule, four endings, three mates and sacrifices, five crowded opening positions labelled in full |
+| The pin gap closed | A piece in front of an unguarded piece of equal value is now reported as pinned |
+| Results page | Its first four tables are built from the recorded files; each shows the run it came from and the command that repeats it |
+
+**What the second held-out set found, before anything was changed.**
+
+- The pin it was written to probe was missed, as expected: 13 of 14 real facts found.
+- *A fault nobody had predicted.* Asked "why not?" about a queen sacrifice that mates, the answer said "Prolog warned: the queen can be taken for less than it is worth. The search agrees: its line loses material", marked confirmed, about the best move on the board. The benchmark's own check ("a warning may be called confirmed only where the search also rates the move worse") caught it on both sacrifices. Fixed: a warning about a move the search rates as its best is overruled, and the sentence says the material is given up as a sacrifice.
+- All 11 labelled moves were played and a depth-10 search agreed with every label. No label needed correcting this time.
+
+After the two fixes the set is no longer untouched for those two rules, and is reported with that said.
+
+**Measured: search configurations.** Recorded 2026-10-07, sources `409793dd`, on Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32.
+
+| Configuration | Positions searched to depth 6 | Share of the first engine | Labelled moves right |
+| --- | --- | --- | --- |
+| old | 2,353,926 | 100.0% | 34 of 36 |
+| activity | 2,356,883 | 100.1% | 35 of 36 |
+| see | 1,823,471 | 77.5% | 33 of 36 |
+| lmr | 639,696 | 27.2% | 35 of 36 |
+| aspiration | 2,369,802 | 100.7% | 34 of 36 |
+| delta | 2,076,763 | 88.2% | 34 of 36 |
+| new | 477,061 | 20.3% | 35 of 36 |
+| hints | 476,932 | 20.3% | 35 of 36 |
+
+Late move reductions do most of the work: alone they cut the search to about a quarter. Static exchange evaluation alone saves a fifth and plays one more labelled move wrong than the first engine does. Aspiration windows and the activity terms alone save nothing. Prolog's hints change the count by less than a tenth of a percent, as milestone 3 found.
+
+**Measured: self-play, 100 ms per move, 24 games a match.**
+
+| Match | Games | Won | Drawn | Lost | Points |
+| --- | --- | --- | --- | --- | --- |
+| new against old | 24 | 14 | 4 | 6 | 66.7% |
+| hints against new | 24 | 2 | 6 | 16 | 20.8% |
+| activity against old | 24 | 11 | 4 | 9 | 54.2% |
+| see against old | 24 | 10 | 7 | 7 | 56.2% |
+| lmr against old | 24 | 11 | 8 | 5 | 62.5% |
+| aspiration against old | 24 | 7 | 8 | 9 | 45.8% |
+| delta against old | 24 | 10 | 6 | 8 | 54.2% |
+
+Twenty-four games is few. One match has a standard error of about ten points, so only a result more than twenty points from 50% says anything. Read each row with that in mind, and against the earlier 96-game runs kept on the results page.
+
+One row is far enough from 50% to mean something by itself: with Prolog's hints the engine does much worse than without. At 100 ms a move the Prolog query (75 to 90 ms for a middlegame position) uses most of the move's time. The earlier run at 300 ms gave 42.2%; this one is harsher because the time is shorter, and it points the same way. The full engine's 66.7% against the first engine does not clear that bar alone, but agrees with the earlier 96-game result of 62.0%. The single-feature rows show nothing either way.
+
+**Measured: explanations.**
+
+| Measure | Development (39) | Held-out (11) | Second held-out (16) |
+| --- | --- | --- | --- |
+| Tactical facts reported that were really there | 41 of 41 | 18 of 18 | 14 of 15 |
+| Real tactical facts that were found | 41 of 41 | 18 of 18 | 14 of 14 |
+| Right move played at Club level | 20 of 20 | 4 of 5 | 11 of 11 |
+| Explanation gave the labelled status | 9 of 9 | 3 of 3 | 8 of 8 |
+| "Why not?" rating matches the label | 20 of 20 | 5 of 5 | 12 of 12 |
+| Sentences that can be followed back | 266 of 266 | 80 of 80 | 147 of 147 |
+| Prolog's top-ranked move was the search's | 10 of 20 | 2 of 5 | 7 of 11 |
+
+The one fact reported that is not there is the case written to show the pin rule's limit: a bishop "pinned" to its partner that could simply step back and guard it. The rule reads lines, not moves, and cannot tell.
+
+**Checked.** Engine tests 191 (16 new: configurations, the three measures, the results writer, the sacrifice warning), Prolog 94 (3 new, for the pin), frontend tests include 11 new ones for the results tables, among them that every file in `results/` is a recorded run and that all three came from the same sources.
+
+**Not done, and why.**
+
+- *A match against an outside engine.* None is installed here and I did not download one. There is still no outside reference for strength.
+- *About 100 labelled positions.* There are 66. Sixteen new ones labelled with care seemed worth more than fifty labelled quickly; milestone 5 showed how easily a label is wrong.
+- *Prolog on the principal variation, as a search experiment.* Not tried. Prolog already reads the end of the line for the explanation; using it to steer the search was not built.
+- *Every figure on the results page traced to a recorded run.* The first four tables are. Five earlier tables are kept as history, copied by hand from the notes, and the page says so.
+
+**Limits.**
+
+- The recorded matches are short and were played while the machine was doing other work.
+- The runs were recorded from a working tree with uncommitted changes, and the files say so. The source fingerprint is what identifies them.
+- Timings in `search.json` are one run on one machine. The node counts are exact and repeatable.
+- The crowded positions are five opening positions. That is a start on the benchmark's weakest side, not an answer to it.
