@@ -9,6 +9,7 @@ import { FILES } from '../geometry';
 import { activateSquare, targetsFrom } from '../moveInput';
 import type { Color, GameState, LegalMove, PieceCode, Square } from '../protocol';
 import { PromotionPicker } from './Board';
+import { sculpture } from './statues';
 
 interface Props {
   game: GameState;
@@ -26,9 +27,14 @@ interface Props {
 
 const ICE = { color: 0xcdeaf6, emissive: 0x2f8fb0, glow: 0x39d5ff, rest: 0.07 };
 const AMETHYST = { color: 0x3b2d74, emissive: 0x5b40b4, glow: 0xd3bcff, rest: 0.14 };
+const ICE_GEM = new THREE.MeshBasicMaterial({ color: ICE.glow });
+const AMETHYST_GEM = new THREE.MeshBasicMaterial({ color: AMETHYST.glow });
 
 /** Development aid: `?slow=6` stretches every animation so it can be inspected. */
 const SLOW = Math.max(1, Number(new URLSearchParams(window.location.search).get('slow')) || 1);
+
+/** Development aid: `?closeup=front` or `?closeup=back` puts the camera beside white's back rank, to inspect the statues. */
+const CLOSEUP = new URLSearchParams(window.location.search).get('closeup');
 
 function squarePosition(square: Square): THREE.Vector3 {
   const file = square.charCodeAt(0) - 97;
@@ -90,235 +96,44 @@ interface Statue extends THREE.Group {
   userData: StatueData;
 }
 
-/**
- * Builds one statue from simple solids. Its front is -z. Every statue has a
- * weapon arm hinged at the shoulder, which is what swings in a fight.
- */
+/** One statue: the shared sculpture for its piece type, in its side's glass. */
 function buildStatue(code: PieceCode): Statue {
   const white = code[0] === 'w';
   const tone = white ? ICE : AMETHYST;
+  const shape = sculpture(code[1]!);
+  // Flat shading leaves every facet showing, which is what makes it read as carved.
   const material = new THREE.MeshPhysicalMaterial({
     color: tone.color,
     emissive: tone.emissive,
     emissiveIntensity: tone.rest,
-    roughness: 0.34,
+    roughness: 0.4,
     metalness: 0.05,
     clearcoat: 0.7,
     clearcoatRoughness: 0.35,
     transparent: true,
     opacity: 0.94,
+    flatShading: true,
+    side: THREE.DoubleSide,
   });
-  const gem = new THREE.MeshBasicMaterial({ color: tone.glow });
+  const gem = white ? ICE_GEM : AMETHYST_GEM;
   const group = new THREE.Group() as Statue;
-
-  type Parent = THREE.Object3D;
-  const add = (parent: Parent, geometry: THREE.BufferGeometry, x: number, y: number, z: number, mat: THREE.Material = material) => {
+  const add = (parent: THREE.Object3D, geometry: THREE.BufferGeometry | null, mat: THREE.Material) => {
+    if (!geometry) return;
     const mesh = new THREE.Mesh(geometry, mat);
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
+    mesh.castShadow = mat === material;
     parent.add(mesh);
-    return mesh;
   };
-  /** A turned solid whose foot is at height `y`. */
-  const turned = (top: number, bottom: number, height: number, y: number, sides = 20, parent: Parent = group) =>
-    add(parent, new THREE.CylinderGeometry(top, bottom, height, sides), 0, y + height / 2, 0);
-  const tube = (r: number, height: number, x: number, y: number, z: number, parent: Parent = group) =>
-    add(parent, new THREE.CylinderGeometry(r, r, height, 10), x, y + height / 2, z);
-  const ball = (r: number, x: number, y: number, z: number, mat?: THREE.Material, parent: Parent = group) =>
-    add(parent, new THREE.SphereGeometry(r, 18, 12), x, y, z, mat);
-  const block = (w: number, h: number, d: number, x: number, y: number, z: number, mat?: THREE.Material, parent: Parent = group) =>
-    add(parent, new THREE.BoxGeometry(w, h, d), x, y, z, mat);
-  const spike = (r: number, height: number, x: number, y: number, z: number, parent: Parent = group) =>
-    add(parent, new THREE.ConeGeometry(r, height, 10), x, y + height / 2, z);
-
-  // The plinth every statue stands on.
-  turned(0.36, 0.4, 0.07, 0, 28);
-  turned(0.3, 0.34, 0.05, 0.07, 28);
-  const floor = 0.12;
-
-  /** Torso, shoulder guards, neck and head on top of legs or a robe. Returns the head's height. */
-  const person = (o: { robe: boolean; hem: number; waist: number; chest: number; hips: number; shoulders: number }) => {
-    if (o.robe) {
-      turned(o.waist, o.hem, o.hips, floor);
-    } else {
-      tube(0.042, o.hips, -0.055, floor, 0);
-      tube(0.042, o.hips, 0.055, floor, 0);
-      block(0.07, 0.03, 0.11, -0.055, floor + 0.015, -0.02);
-      block(0.07, 0.03, 0.11, 0.055, floor + 0.015, -0.02);
-    }
-    turned(o.chest, o.waist, o.shoulders - o.hips, floor + o.hips);
-    turned(o.waist + 0.012, o.waist + 0.012, 0.03, floor + o.hips - 0.01);
-    ball(0.058, -o.chest - 0.012, floor + o.shoulders - 0.025, 0);
-    ball(0.058, o.chest + 0.012, floor + o.shoulders - 0.025, 0);
-    turned(0.035, 0.045, 0.04, floor + o.shoulders);
-    const head = floor + o.shoulders + 0.105;
-    ball(0.075, 0, head, 0);
-    return head;
-  };
-
-  /** The hinged weapon arm: an arm hanging from the shoulder, ending in a hand. */
-  const weaponArm = (x: number, y: number, thickness = 0.028) => {
-    const arm = new THREE.Group();
-    arm.position.set(x, y, 0);
-    group.add(arm);
-    tube(thickness, 0.2, 0, -0.2, 0, arm);
-    ball(thickness + 0.01, 0, -0.2, 0, undefined, arm);
-    return arm;
-  };
-  /** The off arm, fixed, for a shield or simply for balance. */
-  const offArm = (x: number, y: number) => {
-    tube(0.028, 0.2, x, y - 0.2, 0);
-    ball(0.036, x, y - 0.2, 0);
-  };
-  /** A sword held point-down beside the body, the way a statue stands at rest. */
-  const sword = (arm: Parent, length: number) => {
-    block(0.03, length, 0.012, 0, -0.225 - length / 2, 0, undefined, arm);
-    block(0.12, 0.022, 0.026, 0, -0.225, 0, undefined, arm);
-    ball(0.02, 0, -0.165, 0, gem, arm);
-  };
-  /** A pole through the hand: butt on the ground, head in the air. */
-  const pole = (arm: Parent, below: number, above: number) => tube(0.013, below + above, 0, -0.2 - below, 0, arm);
-  const cape = (width: number, top: number, length: number, depth: number) => {
-    block(width, length, 0.016, 0, floor + top - length / 2, depth + 0.02).rotation.x = -0.12;
-  };
-
-  let arm: THREE.Group;
-  let windup = 3.3;
-  let hit = 1.25;
-  let rear = 0.18;
-
-  switch (code[1]) {
-    // Infantry: kettle helm, round shield, spear.
-    case 'P': {
-      const head = person({ robe: false, hem: 0, waist: 0.085, chest: 0.11, hips: 0.2, shoulders: 0.42 });
-      turned(0.1, 0.13, 0.11, floor + 0.14); // the skirt of the tunic
-      add(group, new THREE.SphereGeometry(0.086, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), 0, head + 0.01, 0);
-      turned(0.118, 0.118, 0.012, head + 0.005);
-      offArm(-0.14, floor + 0.4);
-      const shield = add(group, new THREE.CylinderGeometry(0.13, 0.13, 0.028, 22), -0.15, floor + 0.27, -0.09);
-      shield.rotation.x = Math.PI / 2;
-      ball(0.032, -0.15, floor + 0.27, -0.115, gem);
-      arm = weaponArm(0.14, floor + 0.4);
-      pole(arm, 0.2, 0.55);
-      spike(0.03, 0.1, 0, 0.35, 0, arm);
-      windup = 0.3; // a spear is drawn back a little, then levelled and driven in
-      hit = -1.45;
-      break;
-    }
-    // A siege tower that has stood up: battlements for a head, a hammer fist.
-    case 'R': {
-      turned(0.2, 0.26, 0.42, floor, 8);
-      turned(0.26, 0.22, 0.12, floor + 0.42, 8);
-      for (let i = 0; i < 6; i++) {
-        const a = (i * Math.PI) / 3;
-        block(0.1, 0.09, 0.1, Math.cos(a) * 0.2, floor + 0.585, Math.sin(a) * 0.2).rotation.y = -a;
-      }
-      block(0.2, 0.03, 0.02, 0, floor + 0.48, -0.245, gem);
-      block(0.11, 0.16, 0.02, 0, floor + 0.09, -0.25); // the gate
-      ball(0.1, -0.29, floor + 0.38, 0);
-      tube(0.05, 0.2, -0.3, floor + 0.17, 0);
-      block(0.13, 0.12, 0.13, -0.3, floor + 0.13, 0);
-      ball(0.1, 0.29, floor + 0.38, 0);
-      arm = weaponArm(0.3, floor + 0.38, 0.05);
-      block(0.15, 0.14, 0.15, 0, -0.26, 0, undefined, arm);
-      windup = 3.1;
-      hit = 1.3;
-      break;
-    }
-    // A mounted knight: war horse, rider in a great helm, sword.
-    case 'N': {
-      for (const x of [-0.08, 0.08]) for (const z of [-0.19, 0.2]) tube(0.034, 0.24, x, floor, z);
-      const barrel = add(group, new THREE.CapsuleGeometry(0.12, 0.3, 6, 14), 0, floor + 0.34, 0.01);
-      barrel.rotation.x = Math.PI / 2;
-      block(0.27, 0.15, 0.36, 0, floor + 0.3, 0.02); // the caparison hanging over its flanks
-      const neck = add(group, new THREE.CylinderGeometry(0.06, 0.095, 0.3, 12), 0, floor + 0.52, -0.25);
-      neck.rotation.x = -0.6;
-      const skull = block(0.1, 0.11, 0.25, 0, floor + 0.66, -0.4);
-      skull.rotation.x = 0.55;
-      spike(0.022, 0.07, -0.035, floor + 0.7, -0.31);
-      spike(0.022, 0.07, 0.035, floor + 0.7, -0.31);
-      ball(0.02, -0.055, floor + 0.68, -0.38, gem);
-      ball(0.02, 0.055, floor + 0.68, -0.38, gem);
-      const tail = spike(0.035, 0.22, 0, floor + 0.2, 0.27);
-      tail.rotation.x = Math.PI - 0.5;
-      // The rider.
-      turned(0.085, 0.075, 0.2, floor + 0.44);
-      ball(0.05, -0.1, floor + 0.62, 0.01);
-      ball(0.05, 0.1, floor + 0.62, 0.01);
-      turned(0.062, 0.066, 0.12, floor + 0.65, 12);
-      block(0.09, 0.016, 0.02, 0, floor + 0.72, -0.064, gem);
-      spike(0.02, 0.1, 0, floor + 0.77, 0.02);
-      const shield = block(0.02, 0.2, 0.15, -0.13, floor + 0.5, -0.02);
-      shield.rotation.z = 0.12;
-      arm = weaponArm(0.12, floor + 0.63, 0.024);
-      sword(arm, 0.3);
-      rear = 0.5;
-      break;
-    }
-    // A bishop: long robe, mitre, crozier.
-    case 'B': {
-      const head = person({ robe: true, hem: 0.2, waist: 0.1, chest: 0.115, hips: 0.38, shoulders: 0.6 });
-      const mitre = spike(0.082, 0.2, 0, head + 0.045, 0);
-      mitre.scale.z = 0.62;
-      turned(0.084, 0.084, 0.022, head + 0.04);
-      block(0.022, 0.15, 0.012, 0, floor + 0.44, -0.117, gem);
-      block(0.085, 0.022, 0.012, 0, floor + 0.48, -0.117, gem);
-      block(0.05, 0.36, 0.012, 0, floor + 0.2, -0.165).rotation.x = 0.24; // the stole
-      offArm(-0.14, floor + 0.57);
-      arm = weaponArm(0.14, floor + 0.57);
-      pole(arm, 0.36, 0.5);
-      const crook = add(arm, new THREE.TorusGeometry(0.05, 0.013, 8, 20, Math.PI * 1.5), 0, 0.33, -0.05);
-      crook.rotation.y = Math.PI / 2;
-      crook.rotation.z = -Math.PI / 4;
-      windup = 0.55; // the staff is swung over the top and brought down
-      hit = -1.35;
-      break;
-    }
-    // A warrior queen: breastplate over a gown, tall crown, cloak, sword.
-    case 'Q': {
-      const head = person({ robe: true, hem: 0.2, waist: 0.075, chest: 0.1, hips: 0.42, shoulders: 0.64 });
-      turned(0.105, 0.085, 0.09, floor + 0.5); // breastplate
-      turned(0.078, 0.066, 0.04, head + 0.05);
-      for (let i = 0; i < 6; i++) {
-        const a = (i * Math.PI) / 3;
-        spike(0.016, i % 2 ? 0.07 : 0.11, Math.cos(a) * 0.066, head + 0.085, Math.sin(a) * 0.066);
-      }
-      ball(0.022, 0, head + 0.07, -0.078, gem);
-      ball(0.026, 0, floor + 0.56, -0.105, gem);
-      cape(0.2, 0.62, 0.52, 0.1);
-      offArm(-0.125, floor + 0.61);
-      arm = weaponArm(0.125, floor + 0.61);
-      sword(arm, 0.36);
-      break;
-    }
-    // A warrior king: broad and bearded, crown and cross, cloak, great sword.
-    default: {
-      const head = person({ robe: true, hem: 0.23, waist: 0.115, chest: 0.135, hips: 0.44, shoulders: 0.7 });
-      turned(0.14, 0.12, 0.1, floor + 0.55); // cuirass
-      const beard = spike(0.05, 0.1, 0, head - 0.15, -0.05);
-      beard.rotation.x = Math.PI;
-      beard.position.y = head - 0.075;
-      turned(0.092, 0.078, 0.06, head + 0.05);
-      for (let i = 0; i < 4; i++) {
-        const a = (i * Math.PI) / 2 + Math.PI / 4;
-        spike(0.018, 0.06, Math.cos(a) * 0.078, head + 0.105, Math.sin(a) * 0.078);
-      }
-      block(0.026, 0.14, 0.026, 0, head + 0.19, 0);
-      block(0.09, 0.026, 0.026, 0, head + 0.2, 0);
-      ball(0.028, 0, floor + 0.62, -0.14, gem);
-      cape(0.27, 0.68, 0.58, 0.13);
-      offArm(-0.16, floor + 0.67);
-      const shield = block(0.02, 0.24, 0.18, -0.19, floor + 0.44, -0.03);
-      shield.rotation.z = 0.1;
-      arm = weaponArm(0.16, floor + 0.67, 0.032);
-      sword(arm, 0.43);
-      break;
-    }
-  }
+  add(group, shape.body, material);
+  add(group, shape.gems, gem);
+  const arm = new THREE.Group();
+  arm.position.copy(shape.shoulder);
+  add(arm, shape.arm, material);
+  add(arm, shape.armGems, gem);
+  group.add(arm);
 
   const facing = white ? 0 : Math.PI;
   group.rotation.y = facing;
-  group.userData = { code, material, facing, lift: 0, arm, windup, hit, rear };
+  group.userData = { code, material, facing, lift: 0, arm, windup: shape.windup, hit: shape.hit, rear: shape.rear };
   return group;
 }
 
@@ -855,9 +670,15 @@ function createWorld(canvas: HTMLCanvasElement) {
     camera.aspect = width / height;
     // Pull back on narrow frames so the whole board stays in view.
     const distance = Math.max(1, 4 / 3 / camera.aspect);
-    cameraHome.set(0, 6.4 * distance, 10.3 * side * distance);
+    cameraHome.set(0, 6.2 * distance, 10.0 * side * distance);
     camera.position.copy(cameraHome);
     camera.lookAt(0, -0.2, 0.75 * side);
+    if (CLOSEUP) {
+      // Stand on the board and look at white's back rank, from in front of it or behind.
+      cameraHome.set(-1, 1.6, CLOSEUP === 'front' ? -1.6 : 8.6);
+      camera.position.copy(cameraHome);
+      camera.lookAt(-1, 0.55, 3.5);
+    }
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
     key.position.set(-5 * side, 10, 6 * side);

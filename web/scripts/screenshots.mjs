@@ -54,6 +54,9 @@ const VIEWS = [
   ['board-3d', position('r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4', 'analyse=1&pieces=3d'),
     `!!document.querySelector('canvas')`,
     'the 3D board'],
+  ['statues', position('rnbqkp2/8/8/8/8/8/8/RNBQKP2 w - - 0 1', 'pieces=3d&closeup=front'),
+    `!!document.querySelector('canvas')`,
+    'the six 3D statues, close up'],
 ];
 
 if (!CHROME) {

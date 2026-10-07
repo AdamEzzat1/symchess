@@ -177,7 +177,7 @@ The **Pieces** switch in the left rail changes how the game is drawn. It is pres
 
 - **Classic**: glass chess pieces on a flat board.
 - **Figures**: the same glass, drawn as statues (soldier, cleric, tower, horse, queen, king).
-- **3D**: a 3D board of statues that fight when one takes another. Click to move. The analysis overlays, keyboard play and drag are only on the flat boards. Three.js is fetched only if this is chosen.
+- **3D**: a 3D board of carved statues (foot soldier, knight on a rearing horse, bishop with crozier, stone tower, warrior queen, king on his sword) that fight when one takes another. The shapes are built in code from simple solids, in the same ice and amethyst glass; see `docs/screenshots/statues.png`. Click to move. The analysis overlays, keyboard play and drag are only on the flat boards. Three.js is fetched only if this is chosen.
 
 Animations are skipped for anyone whose device asks for reduced motion.
 
