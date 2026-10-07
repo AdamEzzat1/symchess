@@ -1150,12 +1150,13 @@ number from one of those two searches or a fact from Prolog, and says which."
                                   :check check :basis basis)))
                       (cond
                         ((minusp (jget motif "score" 0))
-                         (cond ((and (<= alt-swing -100) (or same mate (<= loss 60)))
+                         (cond ((and (<= alt-swing -100) (or same (<= loss 60)))
                                 ;; A sound sacrifice: the material does go, and
                                 ;; the search still rates the move as highly as
                                 ;; any. The warning was true and beside the point.
                                 (say "overruled"
-                                     (format nil "Prolog warned: ~A The material is given up in the search's line, and the search still rates the move ~A: a sacrifice." text (verdict-words verdict))
+                                     (format nil "Prolog warned: ~A The material is given up in the search's line, and ~:[the search still rates the move about as good as its own choice~;it is still the move the search would play itself~]: a sacrifice."
+                                             text same)
                                      "check:warning"
                                      (format nil "Overruled: the line after ~A ends ~,1F pawns of material down, but the search does not rate the move worse than its best." san (pawns alt-swing))))
                                ((<= alt-swing -100)

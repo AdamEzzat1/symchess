@@ -488,7 +488,18 @@
       (check "a warning about a sacrifice the search rates best is overruled, not confirmed"
              (jget item "status") "overruled")
       (check "and the sentence says the material really is given up"
-             (and (search "a sacrifice" (jget item "text")) t) t))
+             (and (search "still the move the search would play itself: a sacrifice" (jget item "text")) t) t)
+      ;; The other way round: the best move mates, the asked move just loses the queen.
+      (let* ((bad-move (parse-uci-move p "d2b4"))
+             (hang (obj "kind" "hangs_piece" "score" -960 "targets" (list "b4")
+                        "text" "the queen on b4 can be taken for less than it is worth." "facts" '()))
+             (analysis (obj "facts" '() "plans" '()
+                            "moves" (list (obj "uci" "d2b4" "score" -960 "motifs" (list hang)))))
+             (alt (search-line p bad-move (search-result-depth best)))
+             (item (find "hangs_piece" (getf-string (build-counterfactual p best alt analysis) "items")
+                         :key (lambda (i) (jget i "motif")) :test #'equal)))
+        (check "a warning about a move that is not a sacrifice is not excused because a mate was on"
+               (jget item "status") "confirmed")))
     (check "the position is left as it was"
            (let ((p (pos-from-fen "4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1")))
              (build-counterfactual p (search-position p :max-depth 3)
