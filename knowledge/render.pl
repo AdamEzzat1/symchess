@@ -55,13 +55,24 @@ fact_use(doubled_pawns, mirrors_eval) :- !.
 fact_use(_, explanation).
 
 fact_dict(Id-Fact,
-          _{id:Id, kind:Kind, side:Side, squares:Names, text:Text, label:Label,
+          _{id:Id, key:Key, kind:Kind, side:Side, squares:Names, text:Text, label:Label,
             viz:VizDicts, use:Use}) :-
     describe(Fact, Kind, Side, Squares, Text, Viz),
     fact_label(Fact, Label),
     maplist(sq_name, Squares, Names),
+    fact_key(Kind, Label, Key),
     maplist(viz_dict, Viz, VizDicts),
     fact_use(Kind, Use).
+
+%   fact_key(+Kind, +Label, -Key): an identity for a fact that does not depend
+%   on the order facts were found in, so the same fact can be recognised in
+%   two different positions ("the knight on c6 is still pinned"). It is the
+%   kind of fact and its subject, and deliberately not the other pieces
+%   involved: a knight pinned by a bishop on b5 is still the same pinned
+%   knight when the bishop steps back to a4. The id (f1, f2...) only means
+%   something within one position.
+fact_key(Kind, Label, Key) :-
+    format(atom(Key), '~w|~w', [Kind, Label]).
 
 %   fact_label(+Fact, -Label): the subject of a fact in three or four words,
 %   for compact lists ("black knight c6"). The full sentence stays in `text`.

@@ -501,12 +501,13 @@ moves are not."
       (unmake-move p))
     (stable-sort (nreverse scored) #'> :key #'cdr)))
 
-(defun search-line (p move depth)
+(defun search-line (p move depth &key time-ms stop-fn)
   "A SEARCH-RESULT describing MOVE as if it had been the choice: its score and
 the line expected to follow it, from a search of the position it leads to."
   (let ((child (copy-position p)))
     (make-move child move)
-    (let ((r (search-position child :max-depth (max 1 (1- depth)))))
+    (let ((r (search-position child :max-depth (max 1 (1- depth))
+                                    :time-ms time-ms :stop-fn stop-fn)))
       (make-search-result :best-move move
                           :score (- (search-result-score r))
                           :depth (1+ (search-result-depth r))

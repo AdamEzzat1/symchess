@@ -575,6 +575,22 @@ the game it holds, and `review_closed` tells it when the engine has let go. A
 browsed position is shown exactly like a replayed line step: no legal moves, a
 negative id.
 
+**How "why not this move?" is answered.** `explain_move {uci, positionId}`
+starts a worker that searches the position for its best move, then searches
+the asked move to the same depth (`search-line`), under the search lock. Lisp
+then asks Prolog for the two resulting positions and compares facts by their
+`key`: an identity Prolog gives each fact from its kind and subject, the same
+wherever the fact holds (the per-position ids `f1`, `f2` are not). The reply,
+`counterfactual`, is tagged with `positionId` and `searchId`; the reducer drops
+it if the board has moved on, and the line behind it can be replayed with
+`request_line` like any other. Ratings come from fixed bands on the score
+difference, owned by the engine. Each sentence carries a `basis`: the rule
+that decided its status, in words.
+
+A game review uses the same comparison per move (`review_step.change`): the
+search's own choice in the position before, the game move searched to the same
+depth, the change in each evaluation term, and the fact delta.
+
 **The second front door.** `engine/uci.lisp` runs `uci-loop`, which speaks the
 Universal Chess Interface on standard input and output. It shares the board,
 the move generator and the search with the WebSocket server and nothing else:

@@ -3,6 +3,7 @@ import type { PanelTab } from '../demo';
 import type { ClientCommand, Color, Fact, GameState, Plan } from '../protocol';
 import { selectFocus, verdictFor, type Highlight } from '../selectViz';
 import type { AppState } from '../state';
+import { Counterfactual } from './Counterfactual';
 import { MoveStrip, StatusBanner } from './GamePanel';
 import { Icon, type IconName } from './icons';
 import { MiniBoard } from './MiniBoard';
@@ -381,11 +382,23 @@ export function ReasoningPanel({
                             <Badge kind={item.status}>{item.status}</Badge>
                           </span>
                           {item.text}
+                          {item.basis && <span className="basis">{item.basis}</span>}
                         </li>
                       ))}
                     </ul>
                     {replayButton}
                   </section>
+                )}
+
+                {game.status === 'active' && (
+                  <Counterfactual
+                    game={game}
+                    result={state.counterfactual?.positionId === game.positionId ? state.counterfactual : null}
+                    disabled={game.engineThinking || search?.running === true}
+                    send={send}
+                    onReplay={onReplay}
+                    replayPending={replayPending}
+                  />
                 )}
 
                 {hints.length > 0 && (

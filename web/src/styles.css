@@ -2004,3 +2004,70 @@ select,
   opacity: 0.4;
   cursor: default;
 }
+
+/* ------------------------------------------------ why not, and what changed */
+.basis {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.whynot-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.whynot-form .field {
+  flex: 1;
+  min-width: 180px;
+}
+.whynot {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+.whynot-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.whynot-table th,
+.whynot-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.whynot-table thead th {
+  font-family: var(--mono);
+  color: var(--text);
+}
+.whynot-table tbody th {
+  color: var(--muted);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.whynot-table .pv {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+.change-lines {
+  margin: 8px 0 10px;
+  display: grid;
+  gap: 4px;
+  line-height: 1.45;
+}
+.replay-step-missed_chance {
+  border-color: var(--weak);
+  color: var(--weak);
+}
+.replay-step-mistake,
+.replay-step-blunder {
+  border-color: var(--threat);
+  color: var(--threat);
+}
+.replay-step-blunder {
+  background: rgb(255 107 95 / 14%);
+}

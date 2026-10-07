@@ -22,6 +22,14 @@ const CAP = 500;
 const height = (score: Score): number =>
   score.mate !== null ? (score.mate > 0 ? CAP : -CAP) : Math.max(-CAP, Math.min(CAP, score.cp ?? 0));
 
+/** Moves the engine's rough comparison marks out. Presentation of its verdict, nothing more. */
+const FLAG_TITLE: Record<string, string> = {
+  missed_chance: 'The search rates this a missed chance',
+  mistake: 'The search rates this a mistake',
+  blunder: 'The search rates this a blunder',
+};
+const flag = (verdict: string | null | undefined) => (verdict && FLAG_TITLE[verdict] ? ` replay-step-${verdict}` : '');
+
 const signed = (cp: number) => `${cp >= 0 ? '+' : '-'}${(Math.abs(cp) / 100).toFixed(2)}`;
 
 /** The engine's evaluation across the game. It plots the scores it was sent and nothing else. */
@@ -89,6 +97,7 @@ export function GameReview({ review, index, view, active, onHover, onStep, onClo
   const startsWithBlack = review.steps[1]?.by === 'black';
   const startNumber = Number(review.steps[0]?.fen.split(' ')[5]) || 1;
   const terms = step?.evalBreakdown;
+  const marked = review.steps.filter((s) => s?.change?.verdict && FLAG_TITLE[s.change.verdict]).length;
 
   return (
     <aside className="reasoning replay" aria-label="Game review">
@@ -106,6 +115,9 @@ export function GameReview({ review, index, view, active, onHover, onStep, onClo
       <div className="review-graph">
         <EvalGraph steps={review.steps} plies={plies} index={index} onStep={onStep} />
         <p className="quiet">
+          {review.complete &&
+            marked > 0 &&
+            `${marked} move${marked === 1 ? '' : 's'} marked: a depth-${review.steps[0]?.depth ?? 5} search preferred something else. It misjudges sacrifices that pay off later. `}
           {review.complete
             ? `Evaluation at depth ${review.steps[0]?.depth ?? '—'}, White’s view, capped at ±5. Click to jump.`
             : `Analysing… ${ready} of ${plies + 1} positions`}
@@ -131,8 +143,9 @@ export function GameReview({ review, index, view, active, onHover, onStep, onClo
                 {(whiteMove || i === 0) && <span className="review-number">{number}{whiteMove ? '.' : '…'}</span>}
                 <button
                   type="button"
-                  className={`replay-step${ply === index ? ' replay-step-on' : ''}`}
+                  className={`replay-step${ply === index ? ' replay-step-on' : ''}${flag(review.steps[ply]?.change?.verdict)}`}
                   aria-current={ply === index ? 'step' : undefined}
+                  title={FLAG_TITLE[review.steps[ply]?.change?.verdict ?? ''] }
                   disabled={!review.steps[ply]}
                   onClick={() => onStep(ply)}
                 >
@@ -160,6 +173,13 @@ export function GameReview({ review, index, view, active, onHover, onStep, onClo
                 <span className="eval-score">{step.score ? formatScore(step.score) : step.checkmate ? 'Checkmate' : 'Game over'}</span>
                 {step.score && <span className="quiet">White’s view · depth {step.depth}</span>}
               </p>
+              {step.change && (
+                <ul className="plain change-lines">
+                  {step.change.lines.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+              )}
               {terms && (
                 <dl className="kv kv-terms">
                   <div><dt>Material</dt><dd>{signed(terms.material)}</dd></div>

@@ -103,6 +103,8 @@ export type Viz =
 
 export interface Fact {
   id: string;
+  /** The same wherever this fact holds, so it can be followed from one position to the next. */
+  key?: string;
   kind: string;
   side: Color | null;
   squares: Square[];
@@ -143,6 +145,8 @@ export interface ExplanationItem {
   squares: Square[];
   /** The Prolog move motif this sentence reports on, if any. */
   motif?: string | null;
+  /** How the status was decided, where there is a rule to state. */
+  basis?: string | null;
 }
 
 /**
@@ -170,6 +174,25 @@ export interface ReviewStep extends LineStep {
   score: Score | null;
   depth: number;
   evalBreakdown: EvalBreakdown;
+  /** What the move that led here changed. Null for the starting position. */
+  change?: StepChange | null;
+}
+
+/** The engine's comparison of a position with the one before it. */
+export interface StepChange {
+  before: Score | null;
+  after: Score | null;
+  /** The move the search preferred in the position before, in the engine's notation. */
+  best?: string | null;
+  /** What the mover gave up against that move, both searched to the same depth. */
+  lossCp: number | null;
+  verdict: string | null;
+  /** Change in each evaluation term, White's view. */
+  terms: Record<string, number>;
+  factsAdded: Fact[];
+  factsRemoved: Fact[];
+  /** The comparison in sentences, each built from the numbers and facts above. */
+  lines: string[];
 }
 
 export type ServerMessage =
@@ -257,6 +280,30 @@ export type ServerMessage =
       steps: LineStep[];
     }
   | {
+      /** "Why not this move?": the asked move compared with the engine's own choice. */
+      type: 'counterfactual';
+      seq: number;
+      positionId: number;
+      searchId: number;
+      move: LegalMove;
+      best: LegalMove;
+      isBest: boolean;
+      score: Score;
+      bestScore: Score;
+      lossCp: number | null;
+      verdict: string;
+      depth: number;
+      line: string[];
+      bestLine: string[];
+      factsAdded: Fact[];
+      factsRemoved: Fact[];
+      bestFactsAdded: Fact[];
+      bestFactsRemoved: Fact[];
+      summary: string;
+      items: ExplanationItem[];
+      viz: Viz[];
+    }
+  | {
       /** A PGN was read. Every move in `moves` was checked by the engine. */
       type: 'game_loaded';
       seq: number;
@@ -290,6 +337,7 @@ export type ClientCommand =
   | { type: 'inspect_square'; square: Square; positionId: number }
   | { type: 'request_line'; searchId: number }
   | { type: 'load_pgn'; pgn: string }
+  | { type: 'explain_move'; uci: string; positionId: number }
   | { type: 'stop_review' }
   | { type: 'resign' };
 
@@ -374,6 +422,22 @@ const lineStep = {
   symbolic: bool,
   facts: arr(fact),
 };
+const explanationItem = shape({
+  source: oneOf('search', 'eval', 'prolog'),
+  status: oneOf('measured', 'confirmed', 'unconfirmed', 'overruled', 'heuristic'),
+  text: str,
+  squares: arr(square),
+});
+const stepChange = shape({
+  before: nullable(score),
+  after: nullable(score),
+  lossCp: nullable(num),
+  verdict: nullable(str),
+  terms: (v) => isObj(v) && Object.values(v).every(num),
+  factsAdded: arr(fact),
+  factsRemoved: arr(fact),
+  lines: arr(str),
+});
 const evalBreakdown = shape({ material: num, placement: num, pawnStructure: num, bishopPair: num, total: num });
 
 const validators: Record<ServerMessageType, Check> = {
@@ -440,14 +504,7 @@ const validators: Record<ServerMessageType, Check> = {
     searchId: num,
     move: legalMove,
     summary: str,
-    items: arr(
-      shape({
-        source: oneOf('search', 'eval', 'prolog'),
-        status: oneOf('measured', 'confirmed', 'unconfirmed', 'overruled', 'heuristic'),
-        text: str,
-        squares: arr(square),
-      }),
-    ),
+    items: arr(explanationItem),
   }),
   inspection: shape({
     positionId: num,
@@ -464,6 +521,27 @@ const validators: Record<ServerMessageType, Check> = {
     searchId: num,
     steps: arr(shape(lineStep)),
   }),
+  counterfactual: shape({
+    positionId: num,
+    searchId: num,
+    move: legalMove,
+    best: legalMove,
+    isBest: bool,
+    score,
+    bestScore: score,
+    lossCp: nullable(num),
+    verdict: str,
+    depth: num,
+    line: arr(str),
+    bestLine: arr(str),
+    factsAdded: arr(fact),
+    factsRemoved: arr(fact),
+    bestFactsAdded: arr(fact),
+    bestFactsRemoved: arr(fact),
+    summary: str,
+    items: arr(explanationItem),
+    viz: arr(viz),
+  }),
   game_loaded: shape({
     gameId: num,
     tags: (v) => isObj(v) && Object.values(v).every(str),
@@ -471,7 +549,15 @@ const validators: Record<ServerMessageType, Check> = {
     result: nullable(str),
     error: nullable(shape({ ply: num, text: str, message: str })),
   }),
-  review_step: shape({ gameId: num, ply: num, score: nullable(score), depth: num, evalBreakdown, ...lineStep }),
+  review_step: shape({
+    gameId: num,
+    ply: num,
+    score: nullable(score),
+    depth: num,
+    evalBreakdown,
+    change: (v) => v === undefined || v === null || stepChange(v),
+    ...lineStep,
+  }),
   review_complete: shape({ gameId: num, plies: num }),
   review_closed: shape({ gameId: num }),
   error: shape({ code: str, message: str, inReplyTo: nullable(num) }),

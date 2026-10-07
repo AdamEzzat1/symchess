@@ -222,6 +222,27 @@ check('every step carries a board and Prolog facts', replay.steps.every((s) => t
 check('sides alternate along the line', replay.steps.slice(1).every((s, i) => s.by === (i % 2 === 0 ? 'black' : 'white')));
 check('asking for a line does not change the game', (await (send({ type: 'sync' }), until(ofType('game_state'), 'sync'))).positionId === game.positionId + 2);
 
+console.log('why not this move?');
+const QUEEN = '4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1';
+send({ type: 'new_game', fen: QUEEN, mode: 'analysis' });
+const queenState = await until((m) => m.type === 'game_state' && m.fen === QUEEN, 'queen position');
+send({ type: 'explain_move', uci: 'd2d9', positionId: queenState.positionId });
+check('a move that is not legal is refused', (await until(ofType('error'), 'illegal why-not')).code === 'illegal_move');
+send({ type: 'explain_move', uci: 'd2d5', positionId: queenState.positionId });
+const why = await until(ofType('counterfactual'), 'counterfactual', 60_000);
+check('the answer is tagged with the position it was asked about', why.positionId === queenState.positionId);
+check('it is about the move that was asked', why.move.uci === 'd2d5' && why.isBest === false);
+check('giving the queen for a pawn is rated a blunder', why.verdict === 'blunder' && why.lossCp > 500);
+check('its line starts with the asked move and the reply that punishes it', why.line[0] === 'Qxd5' && why.line[1] === 'exd5');
+check('the warning from Prolog is confirmed by the search, with the reason stated',
+  why.items.some((i) => i.source === 'prolog' && i.status === 'confirmed' && typeof i.basis === 'string'));
+check('it reports facts the move creates', why.factsAdded.some((f) => f.kind === 'hanging' && typeof f.key === 'string'));
+send({ type: 'request_line', searchId: why.searchId });
+const whyLine = await until(ofType('line_replay'), 'counterfactual line');
+check('the line after the asked move can be replayed', whyLine.searchId === why.searchId && whyLine.steps[1].move.uci === 'd2d5');
+send({ type: 'explain_move', uci: 'd2d5', positionId: queenState.positionId - 1 });
+check('a question about an old position is refused', (await until(ofType('error'), 'stale why-not')).code === 'stale_position');
+
 console.log('importing a game');
 send({ type: 'load_pgn', pgn: 'not a game at all' });
 check('text with no moves is refused', (await until(ofType('error'), 'bad pgn')).code === 'bad_pgn');
@@ -241,6 +262,7 @@ for (;;) {
 check('positions arrive in order with the game id', reviewSteps.every((s, i) => s.ply === i && s.gameId === imported.gameId));
 check('each has a score, an evaluation and a board', reviewSteps.every((s) => s.score && typeof s.evalBreakdown.total === 'number' && typeof s.board === 'object'));
 check('the first has no move and the rest name theirs', reviewSteps[0].move === null && reviewSteps[4].move.san === 'Nc6');
+check('each move comes with what it changed, the start with nothing', reviewSteps[0].change === null && reviewSteps.slice(1).every((s) => Array.isArray(s.change.lines) && s.change.lines.length > 0 && typeof s.change.terms.material === 'number'));
 send({ type: 'new_game', humanColor: 'white', mode: 'play' });
 check('starting a new game closes the review', (await until(ofType('review_closed'), 'review closed')).gameId === imported.gameId);
 

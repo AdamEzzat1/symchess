@@ -92,6 +92,17 @@ The last row is a stricter test than the engine applies to itself. The engine ma
 
 One case shows the status doing its job. A pawn advance forks a knight and a bishop, but the bishop escapes with a check and the knight then moves away. The engine labelled the fork "unconfirmed: treat this as a threat, not a win". The label written beforehand said "confirmed", and was wrong.
 
+### "Why not this move?" ratings
+
+Added in milestone 7. For every position with a labelled move, the benchmark asks the engine about that move and checks the rating it gives.
+
+| Check | Development | Held-out |
+| --- | --- | --- |
+| A move to avoid is rated a mistake, a blunder or a missed chance; a best move is rated best or about as good | 20 of 20 | 5 of 5 |
+| A Prolog warning is called confirmed only where the search also rates the move worse | 4 of 4 | none arose |
+
+"Missed chance" was added after the labels were written, and the check was widened to accept it for one position. See `WORKBENCH_PLAN.md`, section 9.
+
 ### Without Prolog
 
 With Prolog unavailable the benchmark still runs. It reports that motif and explanation accuracy were not measured, and gives the same move accuracy (20 of 20 and 4 of 5), because the search never depended on Prolog.

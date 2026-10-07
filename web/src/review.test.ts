@@ -146,3 +146,75 @@ describe('the sample game is only text', () => {
     expect(SAMPLE_PGN.trim().endsWith('1-0')).toBe(true);
   });
 });
+
+const asked = (positionId: number, searchId: number, seq: number): MessageOf<'counterfactual'> => ({
+  type: 'counterfactual',
+  seq,
+  positionId,
+  searchId,
+  move: { uci: 'e1e2', san: 'Ke2', from: 'e1', to: 'e2', promotion: null, capture: false },
+  best: { uci: 'e1d2', san: 'Kd2', from: 'e1', to: 'd2', promotion: null, capture: false },
+  isBest: false,
+  score: { cp: -40, mate: null },
+  bestScore: { cp: 30, mate: null },
+  lossCp: 70,
+  verdict: 'mistake',
+  depth: 6,
+  line: ['Ke2', 'Kd7'],
+  bestLine: ['Kd2'],
+  factsAdded: [],
+  factsRemoved: [],
+  bestFactsAdded: [],
+  bestFactsRemoved: [],
+  summary: 'The search rates Ke2 a mistake.',
+  items: [{ source: 'search', status: 'measured', text: 't', squares: [], basis: 'b' }],
+  viz: [{ type: 'arrow', from: 'e1', to: 'e2', style: 'asked' }],
+});
+
+describe('why not this move? is about one position', () => {
+  it('is kept for the position it was asked about', () => {
+    expect(run([game(5, 1), asked(5, 9, 2)]).counterfactual?.verdict).toBe('mistake');
+  });
+
+  it('is dropped if the board has moved on before it arrives', () => {
+    const state = run([game(5, 1), game(6, 2), asked(5, 9, 3)]);
+    expect(state.counterfactual).toBeNull();
+    expect(state.log.at(-1)).toMatchObject({ type: 'counterfactual', dropped: true });
+  });
+
+  it('is forgotten when the position changes', () => {
+    expect(run([game(5, 1), asked(5, 9, 2), game(6, 3)]).counterfactual).toBeNull();
+  });
+
+  it('lets its own line be replayed, and takes the line with it when it goes', () => {
+    const line: MessageOf<'line_replay'> = { type: 'line_replay', seq: 3, positionId: 5, searchId: 9, steps: [] };
+    expect(run([game(5, 1), asked(5, 9, 2), line]).line?.searchId).toBe(9);
+    expect(run([game(5, 1), asked(5, 9, 2), line, game(6, 4)]).line).toBeNull();
+  });
+
+  it('still refuses a line that belongs to neither the explanation nor the comparison', () => {
+    const line: MessageOf<'line_replay'> = { type: 'line_replay', seq: 3, positionId: 5, searchId: 4, steps: [] };
+    expect(run([game(5, 1), asked(5, 9, 2), line]).line).toBeNull();
+  });
+
+  it('is rejected when malformed', () => {
+    expect(parseServerMessage(JSON.stringify(asked(5, 9, 2)))).not.toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...asked(5, 9, 2), verdict: 7 }))).toBeNull();
+    const badViz = [{ type: 'arrow', from: 'z9', to: 'e2', style: 'asked' }];
+    expect(parseServerMessage(JSON.stringify({ ...asked(5, 9, 2), viz: badViz }))).toBeNull();
+  });
+});
+
+describe('what a move changed, in a review', () => {
+  const terms = { material: -300 };
+  it('accepts a step with a change and one without', () => {
+    const change = { before: { cp: 10, mate: null }, after: { cp: -300, mate: null }, lossCp: 310, verdict: 'blunder', terms, factsAdded: [], factsRemoved: [], lines: ['x'] };
+    expect(parseServerMessage(JSON.stringify({ ...step(1, 1, 3), change }))).not.toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...step(1, 0, 3), change: null }))).not.toBeNull();
+  });
+
+  it('rejects a change whose terms are not numbers', () => {
+    const change = { before: null, after: null, lossCp: null, verdict: null, terms: { material: 'lots' }, factsAdded: [], factsRemoved: [], lines: [] };
+    expect(parseServerMessage(JSON.stringify({ ...step(1, 1, 3), change }))).toBeNull();
+  });
+});

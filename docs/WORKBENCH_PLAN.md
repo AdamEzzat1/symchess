@@ -173,3 +173,50 @@ Build milestone 6 next, PGN before UCI. It is the least risky of the four, it gi
 **A fault found while checking.** While a review was still arriving, asking for a position the engine had not reached left the board on the live game while the panel described the review. The board now shows the latest position that has arrived, so board and panel always agree.
 
 **Not done.** Annotated PGN export. More than one game per PGN. A review is not resumed after a reconnect. The review does not flag blunders or name the turning point: that needs the before-and-after comparison planned for milestone 7. No measurement on the hosted site.
+
+## 9. Milestone 7: results
+
+**Built.**
+
+| Piece | What it does |
+| --- | --- |
+| Stable fact keys (Prolog) | Every fact carries a `key` made of its kind and subject, the same wherever that fact holds |
+| Fact delta (Lisp) | Facts added and removed between two analyses, compared by key. Facts reported only for the side to move are left out |
+| `explain_move` and `counterfactual` | The asked move and the engine's choice searched to the same depth; scores, lines, material, a rating, Prolog's warnings with a status, fact changes, plans that lose their facts |
+| A `basis` on statements | Where a rule decided a status, the rule is stated in words beside the sentence |
+| Review comparison | Each game move against the search's choice from the same position at the same depth, plus what changed in the evaluation terms and in the facts |
+| Interface | A move list and comparison table in the Variations tab, arrows for the asked move, the engine's move and the reply, "step through the line", marked moves in the review |
+
+**Three faults found by reading the output as a chess player, and fixed before anything was measured.**
+
+1. *A pin "disappeared" when the pinning bishop stepped back one square.* The fact key included every square involved, so the same pinned knight looked like a new fact, and a plan was wrongly said to have lost its support. The key is now the kind and the subject only, with a test for exactly this case.
+2. *A move that kept a small advantage was called a blunder.* Bxf7+ in the tour's fork position wins a pawn but misses winning a rook. It is now rated a "missed chance": a move that throws a lot away but leaves its mover no worse.
+3. *A forced recapture was called a blunder in the game review.* The first version compared the scores of two consecutive positions, which were searched to different effective depths. The review now compares each game move with the search's own choice from the same position at the same depth, so a move the search would also play is never marked down.
+
+**Measured.**
+
+| Check | Result |
+| --- | --- |
+| Rating matches the label, development set (a move to avoid is rated mistake, blunder or missed chance; a best move is rated best or about as good) | 20 of 20 |
+| The same, held-out set | 5 of 5 |
+| Prolog warnings called confirmed where the search also rates the move worse | 4 of 4 |
+| Sample game: Black's losing move 15...Nxd7 | Rated a blunder |
+| Sample game: the two forced recaptures on d7 | Rated best |
+| Sample game: Morphy's 10.Nxb5 | Rated a missed chance. **Wrong**: it is the winning sacrifice, which a depth-5 search cannot see |
+
+The "missed chance" rating was added after the labels were written. One label (queen takes rook, leaving bare kings) expected "mistake or blunder" and got "missed chance", which describes it better; the benchmark now accepts all three for a move to avoid. That is a change to the test after seeing a result, and is recorded here as one.
+
+**Checked.** Engine tests 161 (24 new), Prolog 81 (3 new), frontend 89 (8 new), end-to-end with ten new checks: an illegal move is refused, a question about an old position is refused, the answer is tagged with its position, and the line after the asked move can be replayed. In the browser: asked about Bxf7+, read the comparison, stepped through its line and came back.
+
+**Departures from the plan.**
+
+- The fact delta is computed in Lisp from keys that Prolog assigns, not by a new Prolog predicate. Prolog still decides what a fact is and when two facts are the same; Lisp only compares the lists. This avoided a second kind of Prolog request.
+- There is no separate "evaluation change" view for live play. The comparison appears in the game review, where there are two consecutive positions to compare.
+- "Plans preserved or abandoned" is reported only when the asked move loses a plan's facts and the engine's move keeps them.
+
+**Limits.**
+
+- Ratings are the search's opinion at depth 6 (depth 5 in a review). It rates some sound opening moves as inaccuracies and, as above, misjudges a sound sacrifice. Statements are worded as the search's rating for that reason.
+- The evaluation-term explanation is given only when the standing position accounts for most of the score change and in the same direction; otherwise it says the change is in what the search sees ahead.
+- A fact's key does not include the other pieces involved, so two different pins of the same piece would count as one fact.
+- The review now runs a second search for each move the search would not have played, so it is slower than in milestone 6. Not re-timed on the hosted site.

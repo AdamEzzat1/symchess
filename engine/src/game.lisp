@@ -138,7 +138,7 @@ it is the search's best move. Must run with LEVEL's features switched on."
   (clock-black 0)
   (clock-started nil)                   ; NOW-MS when the running clock started
   (search-id 0)
-  (line nil)                            ; the newest explained line: (:sid :pid :pos :pv)
+  (line nil)                            ; recent explained lines, newest first: ((:sid :pid :pos :pv) ...)
   (review-id 0)                         ; counts imported games
   (review-flag nil)                     ; (list nil) while an imported game is being reviewed
   (review-open nil)                     ; the gameId the client is holding, if any
@@ -360,11 +360,91 @@ notices the closed socket and ends the session."
 ;;;   overruled   - a Prolog warning the search decided to ignore
 ;;;   heuristic   - positional advice the search cannot verify at this depth
 
-(defun explanation-item (source status text &optional (targets '()) (motif :null))
+(defun explanation-item (source status text &optional (targets '()) (motif :null) (basis :null))
   (obj "source" source "status" status "text" text "squares" targets
        ;; Which Prolog motif this sentence is about, so the UI can tie a
        ;; verdict to the right fact instead of guessing from squares.
-       "motif" motif))
+       "motif" motif
+       ;; How the status was decided, in a sentence, where there is a rule to state.
+       "basis" basis))
+
+(defun remember-line (g sid pid p pv)
+  "Keep the line behind search SID so it can be replayed on request. A few
+are kept: the engine's own choice and a move the user asked about can both be
+on screen."
+  (push (list :sid sid :pid pid :pos (copy-position p) :pv pv) (game-line g))
+  (when (nthcdr 4 (game-line g))
+    (setf (game-line g) (subseq (game-line g) 0 4))))
+
+;;; ---------------------------------------------------- comparing two positions
+;;; "What did that move change?" is answered with two things the engine
+;;; already has: the evaluator's terms for each position, and Prolog's facts
+;;; for each. Prolog gives every fact a key that is the same wherever that
+;;; fact holds; comparing keys is all that happens here.
+
+(defparameter *delta-ignored-kinds* '("pawn_break")
+  "Facts reported only for the side to move. They vanish after any move, which
+says nothing about the position, so they are left out of comparisons.")
+
+(defparameter *tactical-kinds*
+  '("check" "fork" "pin" "skewer" "hanging" "threatened" "overloaded" "pinned_defender"
+    "trapped" "discovered_attack" "weak_back_rank" "unstoppable_pawn")
+  "Facts about what can be won or lost now. In a comparison they are reported
+before facts about pawn structure and files.")
+
+(defun delta-facts (analysis)
+  (let ((facts (remove-if (lambda (fact)
+                            (member (jget fact "kind") *delta-ignored-kinds* :test #'equal))
+                          (and analysis (jget analysis "facts" '())))))
+    (flet ((tactical (fact) (member (jget fact "kind") *tactical-kinds* :test #'equal)))
+      (append (remove-if-not #'tactical facts) (remove-if #'tactical facts)))))
+
+(defun fact-delta (before after)
+  "Two lists of fact objects from analyses BEFORE and AFTER: the facts true
+only afterwards (added) and the facts true only beforehand (removed)."
+  (let ((old (delta-facts before))
+        (new (delta-facts after)))
+    (flet ((key (fact) (jget fact "key"))
+           (missing-from (facts)
+             (lambda (fact)
+               (find (jget fact "key") facts :key (lambda (f) (jget f "key")) :test #'equal))))
+      (declare (ignorable #'key))
+      (values (remove-if (missing-from old) new)
+              (remove-if (missing-from new) old)))))
+
+(defparameter *term-names*
+  '(("material" . "material") ("placement" . "piece placement") ("pawnStructure" . "pawn structure")
+    ("bishopPair" . "bishop pair") ("activity" . "piece activity") ("kingSafety" . "king safety")))
+
+(defun term-delta (before after)
+  "The change in each evaluation term between two breakdowns, White's view."
+  (cons :obj (loop for (key) in *term-names*
+                   collect (cons key (- (jget after key 0) (jget before key 0))))))
+
+;;; Verdict words come from fixed bands on the score difference. The bands are
+;;; wide because a difference of a few hundredths at this depth is noise.
+(defun clamp-score (score) (max -2000 (min 2000 score)))
+
+(defun loss-verdict (loss &optional (mover-score -1))
+  "LOSS: centipawns the mover gave up compared with the better alternative.
+MOVER-SCORE: where the move leaves its mover. A move that throws away a lot
+but still leaves its mover no worse is a missed chance, not a blunder."
+  (cond ((<= loss 15) "as_good")
+        ((<= loss 60) "inaccuracy")
+        ((>= mover-score 0) "missed_chance")
+        ((<= loss 200) "mistake")
+        (t "blunder")))
+
+(defun verdict-words (verdict)
+  (cdr (assoc verdict '(("best" . "the engine's own choice")
+                        ("as_good" . "about as good as the engine's choice")
+                        ("inaccuracy" . "an inaccuracy")
+                        ("missed_chance" . "a missed chance")
+                        ("mistake" . "a mistake")
+                        ("blunder" . "a blunder"))
+              :test #'string=)))
+
+(defun mate-score-p (score) (> (abs score) +mate-bound+))
 
 (defun pv-captures-on-p (p pv targets)
   "Does the side to move capture on one of TARGETS later in PV (not move 1)?"
@@ -587,40 +667,154 @@ any time; with no search running it does nothing."
     (broadcast "review_closed" "gameId" (game-review-open g))
     (setf (game-review-open g) nil)))
 
+(defun review-change (san mover before after judged)
+  "What the move SAN changed, and how it compares with the move the search
+would have played. BEFORE and AFTER are snapshots (plists of :score, a
+White-view centipawn score or NIL; :terms, an evaluation breakdown; :analysis,
+Prolog's reply or NIL). JUDGED compares the move with the search's own choice
+from the same position at the same depth: a plist of :same, :best-san,
+:best-score and :move-score (both from the mover's point of view) and :depth.
+MOVER is +1 or -1. Returns an object, or :null for the starting position."
+  (if (null before)
+      :null
+      (let* ((b (getf before :score))
+             (a (getf after :score))
+             (same (getf judged :same))
+             (best-score (getf judged :best-score))
+             (move-score (getf judged :move-score))
+             (mate (and judged (or (mate-score-p best-score) (mate-score-p move-score))))
+             (loss (and judged
+                        (if same 0 (max 0 (- (clamp-score best-score) (clamp-score move-score))))))
+             (verdict (cond ((null judged) :null)
+                            (same "best")
+                            (t (loss-verdict loss (clamp-score move-score)))))
+             (terms (term-delta (getf before :terms) (getf after :terms)))
+             (lines '()))
+        (multiple-value-bind (added removed) (fact-delta (getf before :analysis) (getf after :analysis))
+          (flet ((say (control &rest args) (push (apply #'format nil control args) lines))
+                 (pawns (cp) (format nil "~:[-~;+~]~,2F" (>= cp 0) (/ (abs cp) 100.0))))
+            ;; --- the move against the search's own choice, like for like
+            (cond ((null judged))
+                  (same
+                   (say "~A is the move the search would play too (depth ~D)." san (getf judged :depth)))
+                  (mate
+                   (say "The search preferred ~A (depth ~D); it rates ~A ~A."
+                        (getf judged :best-san) (getf judged :depth) san (verdict-words verdict)))
+                  (t
+                   (say "The search preferred ~A (depth ~D). It rates ~A ~A~:[: about ~,1F pawns worse~;~*~]."
+                        (getf judged :best-san) (getf judged :depth) san (verdict-words verdict)
+                        (zerop loss) (/ loss 100.0))))
+            ;; --- what changed in the position
+            (cond ((not (and a b))
+                   (say "The game ends here, so there is no score to compare."))
+                  ((< (abs (- a b)) 60)
+                   (say "The evaluation barely moved: ~A before, ~A after (White's view)." (pawns b) (pawns a)))
+                  (t
+                   (say "The evaluation went from ~A to ~A (White's view)." (pawns b) (pawns a))
+                   (let* ((static (- (jget (getf after :terms) "total" 0)
+                                     (jget (getf before :terms) "total" 0)))
+                          (agrees (and (plusp (* static (- a b)))
+                                       (>= (* 2 (abs static)) (abs (- a b)))))
+                          (moved (sort (remove-if (lambda (entry)
+                                                    (or (< (abs (cdr entry)) 20)
+                                                        ;; only terms that moved the same way
+                                                        (minusp (* (cdr entry) (- a b)))))
+                                                  (copy-list (rest terms)))
+                                       #'> :key (lambda (entry) (abs (cdr entry))))))
+                     ;; Name the evaluator's terms only when the position as it
+                     ;; stands accounts for most of the change. Otherwise the
+                     ;; change is in what the search sees coming.
+                     (if (and agrees moved)
+                         (say "The evaluator's terms behind it: ~{~A~^, ~}."
+                              (loop for (key . change) in moved
+                                    repeat 3
+                                    collect (format nil "~A ~A"
+                                                    (cdr (assoc key *term-names* :test #'string=))
+                                                    (pawns change))))
+                         (say "That is mostly what the search sees ahead, not the position as it stands.")))))
+            (loop for fact in added repeat 3 do (say "New: ~A" (jget fact "text")))
+            (loop for fact in removed repeat 3 do (say "Gone: ~A" (jget fact "text")))
+            (obj "before" (if b (obj "cp" b "mate" :null) :null)
+                 "after" (if a (obj "cp" a "mate" :null) :null)
+                 "best" (if judged (getf judged :best-san) :null)
+                 "lossCp" (if (and judged (not mate)) loss :null)
+                 "verdict" verdict
+                 "terms" terms
+                 "factsAdded" added
+                 "factsRemoved" removed
+                 "lines" (nreverse lines)))))))
+
 (defun run-review (rid flag start moves)
   (let ((p (copy-position start))
-        (ply 0))
-    (flet ((emit (move by)
-             (when (car flag) (return-from run-review nil))
-             (let* ((fields (position-step-fields p move by))
-                    (result (and (has-legal-move-p p)
+        (ply 0)
+        (previous nil)
+        (searched nil))                 ; the search of the position now on the board
+    (labels ((stop () (car flag))
+             (look (move by judged)
+               "Search and describe the position on the board and send it."
+               (when (stop) (return-from run-review nil))
+               (let* ((fields (position-step-fields p move by))
+                      (result (and (has-legal-move-p p)
+                                   (sb-thread:with-mutex (*search-lock*)
+                                     (unless (stop)
+                                       (set-engine-features)
+                                       (search-position p :max-depth *review-depth*
+                                                          :time-ms *review-time-ms*
+                                                          :stop-fn #'stop)))))
+                      (scored (and result (search-result-best-move result)))
+                      (terms (eval-breakdown p))
+                      (snapshot (list :score (and scored
+                                                  (* (pos-side p)
+                                                     (clamp-score (search-result-score result))))
+                                      :terms terms
+                                      ;; Already cached by POSITION-STEP-FIELDS.
+                                      :analysis (and (has-legal-move-p p) (symbolic-analysis p))))
+                      (change (if (eq move :null)
+                                  :null
+                                  (review-change (jget move "san") (- (pos-side p))
+                                                 previous snapshot judged))))
+                 (setf previous snapshot
+                       searched (and scored result))
+                 (when (stop) (return-from run-review nil))
+                 (apply #'broadcast "review_step"
+                        "gameId" rid
+                        "ply" ply
+                        "change" change
+                        ;; White's view, like every other score. No score for a
+                        ;; position where the game has ended.
+                        "score" (if scored
+                                    (score-object (search-result-score result) (pos-side p))
+                                    :null)
+                        "depth" (if scored (search-result-depth result) 0)
+                        "evalBreakdown" terms
+                        fields)))
+             (judge (m)
+               "Compare game move M with the search's choice in the position on the board."
+               (when searched
+                 (let* ((choice (search-result-best-move searched))
+                        (same (= choice m))
+                        (alt (if same
+                                 searched
                                  (sb-thread:with-mutex (*search-lock*)
-                                   (unless (car flag)
+                                   (unless (stop)
                                      (set-engine-features)
-                                     (search-position p :max-depth *review-depth*
-                                                        :time-ms *review-time-ms*
-                                                        :stop-fn (lambda () (car flag)))))))
-                    (scored (and result (search-result-best-move result))))
-               (when (car flag) (return-from run-review nil))
-               (apply #'broadcast "review_step"
-                      "gameId" rid
-                      "ply" ply
-                      ;; White's view, like every other score. No score for a
-                      ;; position where the game has ended.
-                      "score" (if scored
-                                  (score-object (search-result-score result) (pos-side p))
-                                  :null)
-                      "depth" (if scored (search-result-depth result) 0)
-                      "evalBreakdown" (eval-breakdown p)
-                      fields))))
-      (emit :null :null)
+                                     (search-line p m (search-result-depth searched)
+                                                  :time-ms *review-time-ms* :stop-fn #'stop))))))
+                   (when alt
+                     (list :same same
+                           :best-san (move-san p choice)
+                           :best-score (search-result-score searched)
+                           :move-score (search-result-score alt)
+                           :depth (search-result-depth searched)))))))
+      (look :null :null nil)
       (dolist (m moves)
         (let* ((legal (legal-moves p))
                (move (move-object p m legal))
-               (by (side-name (pos-side p))))
+               (by (side-name (pos-side p)))
+               (judged (judge m)))
           (make-move p m)
           (incf ply)
-          (emit move by)))
+          (look move by judged)))
       (broadcast "review_complete" "gameId" rid "plies" ply))))
 
 (defun cancel-worker (g)
@@ -732,12 +926,210 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
         (apply #'broadcast "explanation" "positionId" pid "searchId" sid
                (build-explanation p played analysis purpose note expected))
         ;; Kept so the line can be replayed on request.
-        (setf (game-line g) (list :sid sid :pid pid :pos (copy-position p)
-                                  :pv (search-result-pv played)))
+        (remember-line g sid pid p (search-result-pv played))
         (when (eq purpose :play)
           (setf (game-thinking g) nil)
           (when (apply-move g (search-result-best-move played) "engine")
             (after-state-change g)))))))
+
+;;; ------------------------------------------------------ "why not this move?"
+
+(defun position-after (p move)
+  (let ((q (copy-position p)))
+    (make-move q move)
+    q))
+
+(defun build-counterfactual (p best alt analysis)
+  "Compare ALT (a search result for the move the user asked about) with BEST
+(the engine's own search of the same position). Every statement is either a
+number from one of those two searches or a fact from Prolog, and says which."
+  (let* ((legal (legal-moves p))
+         (side (pos-side p))
+         (mover (string-capitalize (side-name side)))
+         (move (search-result-best-move alt))
+         (choice (search-result-best-move best))
+         (same (= move choice))
+         (san (move-san p move legal))
+         (best-san (move-san p choice legal))
+         (alt-score (search-result-score alt))
+         (best-score (search-result-score best))
+         (mate (or (mate-score-p alt-score) (mate-score-p best-score)))
+         (loss (max 0 (- (clamp-score best-score) (clamp-score alt-score))))
+         (verdict (if same "best" (loss-verdict loss (clamp-score alt-score))))
+         (alt-swing (pv-material-swing p (search-result-pv alt)))
+         (best-swing (pv-material-swing p (search-result-pv best)))
+         (after-alt (and analysis (symbolic-analysis (position-after p move))))
+         (after-best (and analysis (if same after-alt (symbolic-analysis (position-after p choice)))))
+         (items '()))
+    (multiple-value-bind (added removed) (fact-delta analysis after-alt)
+      (multiple-value-bind (best-added best-removed) (fact-delta analysis after-best)
+        (flet ((add (&rest args) (push (apply #'explanation-item args) items))
+               (pawns (cp) (/ (abs cp) 100.0)))
+          ;; --- what the two searches found
+          (if same
+              (add "search" "measured"
+                   (format nil "~A is the move the engine would play itself. It scores ~A (White's view), searched ~D plies deep."
+                           san (score-text alt-score side) (search-result-depth alt)))
+              (add "search" "measured"
+                   (format nil "~A scores ~A; the engine's choice ~A scores ~A (White's view, ~D and ~D plies deep).~:[ ~A is about ~,1F pawns worse.~;~]"
+                           san (score-text alt-score side) best-san (score-text best-score side)
+                           (search-result-depth alt) (search-result-depth best)
+                           (or mate (zerop loss)) san (pawns loss))
+                   '() :null
+                   (format nil "Verdict \"~A\": the difference between the two scores, in fixed bands (up to 0.15 about as good, 0.6 an inaccuracy, 2.0 a mistake, more a blunder). A move that gives up more than 0.6 but leaves its mover no worse is called a missed chance."
+                           verdict)))
+          (when (rest (search-result-pv alt))
+            (add "search" "measured"
+                 (format nil "After ~A the engine expects: ~{~A~^ ~}." san (pv-san p (search-result-pv alt)))))
+          (unless same
+            (when (or (>= (abs alt-swing) 100) (>= (abs (- alt-swing best-swing)) 100))
+              (add "search" "measured"
+                   (format nil "Material along the two lines: after ~A, ~A ends ~:[level~;~:*~A~]; after ~A, ~:[level~;~:*~A~]."
+                           san mover
+                           (and (/= alt-swing 0)
+                                (format nil "~,1F pawns ~:[down~;up~]" (pawns alt-swing) (plusp alt-swing)))
+                           best-san
+                           (and (/= best-swing 0)
+                                (format nil "~,1F pawns ~:[down~;up~]" (pawns best-swing) (plusp best-swing))))))
+          ;; --- what Prolog said about the move, and whether the search bears it out
+          (if (null analysis)
+              (add "prolog" "heuristic"
+                   "The Prolog knowledge layer was unavailable, so this comparison is search-only.")
+              (let ((entry (find (move-uci move) (jget analysis "moves")
+                                 :key (lambda (e) (jget e "uci")) :test #'string=)))
+                (dolist (motif (and entry (jget entry "motifs")))
+                  (let ((kind (jget motif "kind"))
+                        (targets (jget motif "targets" '()))
+                        (text (jget motif "text")))
+                    (cond
+                      ((minusp (jget motif "score" 0))
+                       (cond ((<= alt-swing -100)
+                              (add "prolog" "confirmed"
+                                   (format nil "Prolog warned: ~A The search agrees: its line loses material." text)
+                                   targets kind
+                                   (format nil "Confirmed because the line after ~A ends ~,1F pawns of material down." san (pawns alt-swing))))
+                             ((and (not same) (> loss 60))
+                              (add "prolog" "unconfirmed"
+                                   (format nil "Prolog warned: ~A The search does rate the move worse, but its line does not show that material being lost." text)
+                                   targets kind
+                                   "Not confirmed: the line's material count is under a pawn down."))
+                             (t
+                              (add "prolog" "overruled"
+                                   (format nil "Prolog warned: ~A The search finds nothing wrong with the move." text)
+                                   targets kind
+                                   "Overruled: the search rates this move within 0.6 pawns of its best and the line loses no material."))))
+                      ((string= kind "gives_check")
+                       (add "prolog" "confirmed" text targets kind "Confirmed because the move does give check."))
+                      ((>= alt-swing 100)
+                       (add "prolog" "confirmed"
+                            (format nil "~A The search's line for it does win material." text) targets kind
+                            (format nil "Confirmed because the line after ~A ends ~,1F pawns of material up." san (pawns alt-swing))))
+                      ((member kind '("captures_hanging" "wins_exchange" "creates_fork"
+                                      "creates_pin" "creates_skewer")
+                               :test #'string=)
+                       (add "prolog" "unconfirmed"
+                            (format nil "~A But the search's line for it does not end material ahead." text)
+                            targets kind
+                            "Not confirmed: the line's material count is under a pawn up."))
+                      (t (add "prolog" "heuristic" text targets kind
+                              "Not checked: the search cannot verify positional advice at this depth.")))))
+                ;; --- what the move changes on the board, by Prolog's facts
+                (flet ((say (facts control &optional (limit 3))
+                         (loop for fact in facts
+                               repeat limit
+                               do (add "prolog" "heuristic"
+                                       (format nil control (jget fact "text"))
+                                       (jget fact "squares" '()) :null
+                                       "A fact Prolog reports in one position and not the other."))))
+                  (say added (format nil "New after ~A: ~~A" san))
+                  (say removed (format nil "No longer true after ~A: ~~A" san))
+                  (unless same
+                    (say (remove-if (lambda (fact)
+                                      (find (jget fact "key") added
+                                            :key (lambda (f) (jget f "key")) :test #'equal))
+                                    best-added)
+                         (format nil "~A would instead create: ~~A" best-san)
+                         2)))
+                ;; --- plans whose supporting facts the move removes
+                (unless same
+                  (let ((facts (jget analysis "facts" '())))
+                    (flet ((survives (plan after)
+                             (every (lambda (id)
+                                      (let ((fact (find id facts :key (lambda (f) (jget f "id")) :test #'equal)))
+                                        (or (null fact)
+                                            (member (jget fact "kind") *delta-ignored-kinds* :test #'equal)
+                                            (find (jget fact "key") (jget after "facts" '())
+                                                  :key (lambda (f) (jget f "key")) :test #'equal))))
+                                    (jget plan "because" '()))))
+                      (loop for plan in (jget analysis "plans" '())
+                            with said = 0
+                            when (and after-alt after-best (< said 2)
+                                      (not (survives plan after-alt))
+                                      (survives plan after-best))
+                              do (incf said)
+                                 (add "prolog" "heuristic"
+                                      (format nil "The plan \"~A\" loses the facts it rests on after ~A; after ~A it keeps them."
+                                              (jget plan "text") san best-san)
+                                      '() :null
+                                      "A plan is kept if every fact it cites is still reported after the move."))))))))
+          (list "move" (move-object p move legal)
+                "best" (move-object p choice legal)
+                "isBest" (jbool same)
+                "score" (score-object alt-score side)
+                "bestScore" (score-object best-score side)
+                "lossCp" (if (or same mate) :null loss)
+                "verdict" verdict
+                "depth" (search-result-depth alt)
+                "line" (pv-san p (search-result-pv alt))
+                "bestLine" (pv-san p (search-result-pv best))
+                "factsAdded" added
+                "factsRemoved" removed
+                "bestFactsAdded" best-added
+                "bestFactsRemoved" best-removed
+                "summary" (if same
+                              (format nil "~A is the engine's own choice (~A)." san (score-text alt-score side))
+                              (format nil "The search rates ~A ~A~:[: about ~,1F pawns worse than ~A~;~*~*~]~:[~;, though ~A is still not worse~]."
+                                      san (verdict-words verdict) (or mate (zerop loss)) (pawns loss) best-san
+                                      (string= verdict "missed_chance") mover))
+                "items" (nreverse items)
+                ;; The asked move, the engine's move, and the reply that answers the asked one.
+                "viz" (append
+                       (list (obj "type" "arrow" "from" (square-name (move-from move))
+                                  "to" (square-name (move-to move)) "style" "asked"))
+                       (unless same
+                         (list (obj "type" "arrow" "from" (square-name (move-from choice))
+                                    "to" (square-name (move-to choice)) "style" "pv")))
+                       (let ((reply (second (search-result-pv alt))))
+                         (when reply
+                           (list (obj "type" "arrow" "from" (square-name (move-from reply))
+                                      "to" (square-name (move-to reply)) "style" "threat")))))))))))
+
+(defun run-counterfactual (g p pid sid flag move depth time-ms)
+  (let ((analysis (symbolic-analysis p)))
+    (when (cancelled-p flag) (return-from run-counterfactual nil))
+    (apply #'broadcast "symbolic_analysis" (symbolic-fields pid analysis))
+    (multiple-value-bind (best alt)
+        ;; Both searches at full strength, one after the other, under the lock.
+        (sb-thread:with-mutex (*search-lock*)
+          (when (cancelled-p flag) (return-from run-counterfactual nil))
+          (set-engine-features)
+          (let* ((stop (lambda () (car flag)))
+                 (best (search-position p :max-depth depth :time-ms time-ms :stop-fn stop))
+                 (choice (search-result-best-move best)))
+            (values best
+                    (cond ((null choice) nil)
+                          ((= choice move) best)
+                          (t (search-line p move (search-result-depth best)
+                                          :time-ms time-ms :stop-fn stop))))))
+      (when (or (cancelled-p flag) (null alt) (null (search-result-best-move best)))
+        (return-from run-counterfactual nil))
+      ;; Prolog queries for the two resulting positions: outside every lock.
+      (let ((fields (build-counterfactual p best alt analysis)))
+        (with-state
+          (when (or (cancelled-p flag) (/= pid (game-position-id g)))
+            (return-from run-counterfactual nil))
+          (remember-line g sid pid p (search-result-pv alt))
+          (apply #'broadcast "counterfactual" "positionId" pid "searchId" sid fields))))))
 
 (defun run-symbolic (g p pid flag)
   (let ((analysis (symbolic-analysis p)))
@@ -745,8 +1137,9 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
       (unless (or (cancelled-p flag) (/= pid (game-position-id g)))
         (apply #'broadcast "symbolic_analysis" (symbolic-fields pid analysis))))))
 
-(defun start-worker (g kind)
-  "KIND is :play, :analysis (both search) or :symbolic (Prolog only)."
+(defun start-worker (g kind &optional move)
+  "KIND is :play, :analysis (both search), :symbolic (Prolog only) or :why
+(compare MOVE with the engine's choice)."
   (cancel-worker g)
   (let* ((p (copy-position (game-pos g)))
          (pid (game-position-id g))
@@ -766,9 +1159,10 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                (when previous
                  (ignore-errors (sb-thread:join-thread previous :default nil)))
                (handler-case
-                   (if (eq kind :symbolic)
-                       (run-symbolic g p pid flag)
-                       (run-search g p pid sid flag kind depth time-ms))
+                   (case kind
+                     (:symbolic (run-symbolic g p pid flag))
+                     (:why (run-counterfactual g p pid sid flag move depth time-ms))
+                     (t (run-search g p pid sid flag kind depth time-ms)))
                  (error (e)
                    (format *error-output* "~&[worker] ~A~%" e)
                    (with-state
@@ -953,10 +1347,11 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
 (defun cmd-request-line (g msg)
   "Replay the line behind an explanation: the client names the search it is
 looking at, and gets nothing if that is no longer the newest one."
-  (let ((line (game-line g))
-        (sid (jget msg "searchId")))
-    (unless (and line (integerp sid) (= sid (getf line :sid)))
-      (protocol-error "stale_line" "That line is no longer the engine's latest."))
+  (let* ((sid (jget msg "searchId"))
+         (line (and (integerp sid)
+                    (find sid (game-line g) :key (lambda (l) (getf l :sid))))))
+    (unless line
+      (protocol-error "stale_line" "That line is no longer one the engine is holding."))
     ;; Several Prolog queries: never hold the state lock while waiting on them.
     (sb-thread:make-thread
      (lambda (&aux (*game* g))
@@ -965,6 +1360,19 @@ looking at, and gets nothing if that is no longer the newest one."
                   "searchId" sid
                   "steps" (line-replay-steps (getf line :pos) (getf line :pv))))
      :name "symchess-line")))
+
+(defun cmd-explain-move (g msg)
+  "Why not this move? Search it and the engine's own choice and compare them."
+  (check-position-id g msg)
+  (unless (string= (game-status g) "active")
+    (protocol-error "game_over" "Nothing to compare: the game is over."))
+  (when (game-thinking g)
+    (protocol-error "engine_busy" "The engine is choosing its move."))
+  (let* ((uci (require-string msg "uci"))
+         (m (parse-uci-move (game-pos g) uci)))
+    (unless m
+      (protocol-error "illegal_move" "~A is not legal in this position." uci))
+    (start-worker g :why m)))
 
 (defparameter *max-pgn-length* 200000)
 
@@ -1078,6 +1486,7 @@ review of all its positions starts in the background."
                     ((string= type "inspect_square") (cmd-inspect-square g msg))
                     ((string= type "request_line") (cmd-request-line g msg))
                     ((string= type "load_pgn") (cmd-load-pgn g msg))
+                    ((string= type "explain_move") (cmd-explain-move g msg))
                     ((string= type "stop_review") (cancel-review g))
                     ((string= type "resign") (cmd-resign g))
                     (t (protocol-error "unknown_command" "Unknown command type ~S." type))))))

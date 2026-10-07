@@ -24,6 +24,7 @@ import { useEngine } from './useEngine';
  *   &select=f1            open the glass inspector on a fact or plan id
  *   &move=e2e4            play one move (the engine still decides if it is legal)
  *   &replay=1             with analyse=1: then step through the expected line
+ *   &whynot=c4f7          ask "why not this move?" about it
  *   ?tour=1               start the guided tour
  *   ?review=sample        import the sample game and open its review (&ply=N to jump)
  * It only sends ordinary commands the UI could send by hand.
@@ -91,6 +92,8 @@ interface Script {
   replay: boolean;
   select?: (analysis: MessageOf<'symbolic_analysis'>) => Highlight;
   move?: string;
+  /** Ask "why not this move?" about it. */
+  ask?: string;
 }
 
 function linkScript(): Script | null {
@@ -105,6 +108,8 @@ function linkScript(): Script | null {
     replay: LINK.get('replay') === '1',
     select: pick ? () => ({ kind: pick.startsWith('p') ? 'plan' : 'fact', id: pick }) : undefined,
     move: LINK.get('move') ?? undefined,
+    ask: LINK.get('whynot') ?? undefined,
+    tab: LINK.get('whynot') ? 'variations' : undefined,
   };
 }
 
@@ -173,6 +178,7 @@ export function App() {
   const [replayFor, setReplayFor] = useState<number | null>(null);
   const [replayAt, setReplayAt] = useState(0);
   const explainedSearch = state.explanation?.searchId ?? null;
+  const comparedSearch = state.counterfactual?.searchId ?? null;
   const startReplay = useCallback(
     (searchId: number) => {
       setReplayFor(searchId);
@@ -183,13 +189,20 @@ export function App() {
   );
   const endReplay = useCallback(() => setReplayFor(null), []);
   useEffect(() => {
-    if (replayFor !== null && explainedSearch !== replayFor) setReplayFor(null);
-  }, [replayFor, explainedSearch]);
+    if (replayFor !== null && explainedSearch !== replayFor && comparedSearch !== replayFor) setReplayFor(null);
+  }, [replayFor, explainedSearch, comparedSearch]);
   const replay = useMemo(
     () => (replayFor !== null && state.line?.searchId === replayFor ? replayView(state, replayAt) : null),
     [state, replayFor, replayAt],
   );
   const replayPending = replayFor !== null && replay === null;
+  // The move the replayed line is about: the engine's own, or the one asked about.
+  const replayMove =
+    replayFor === null
+      ? null
+      : replayFor === comparedSearch
+        ? (state.counterfactual?.move.san ?? null)
+        : (state.explanation?.move.san ?? null);
 
   // An imported game being browsed. The board shows one of its positions,
   // under the same "cannot be played on" rules as a replayed line.
@@ -293,6 +306,7 @@ export function App() {
         if (pick) setSelected(pick);
         if (script.analyse) send({ type: 'request_analysis', positionId });
         if (script.move) send({ type: 'make_move', uci: script.move, positionId });
+        if (script.ask) send({ type: 'explain_move', uci: script.ask, positionId });
       }
     } else if (at.step === 'searching' && explainedHere && state.explanation) {
       at.step = 'done';
@@ -574,11 +588,11 @@ export function App() {
               onStep={setReviewAt}
               onClose={leaveReview}
             />
-          ) : replay && state.line && state.explanation ? (
+          ) : replay && state.line && replayMove ? (
             <ReplayPanel
               view={replay}
               labels={stepLabels(state.line.steps, Number(state.line.steps[0]?.fen.split(' ')[5]) || 1)}
-              moveSan={state.explanation.move.san}
+              moveSan={replayMove}
               active={active}
               onHover={setHovered}
               onStep={setReplayAt}

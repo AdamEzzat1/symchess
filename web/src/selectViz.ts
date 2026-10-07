@@ -97,6 +97,10 @@ export function selectViz(state: AppState, options: VizOptions): Viz[] {
     }
   }
 
+  // "Why not this move?": the asked move, the engine's move, and the reply.
+  const asked = state.counterfactual;
+  if (asked && asked.positionId === game.positionId) out.push(...asked.viz);
+
   const best = search?.info?.bestMove;
   if (options.layers.has('best') && best && search.positionId === game.positionId) {
     // Both primitives restate the search's own best move: where it starts, where it goes.

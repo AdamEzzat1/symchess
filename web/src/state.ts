@@ -70,6 +70,8 @@ export interface AppState {
   inspection: MessageOf<'inspection'> | null;
   /** The line behind `explanation`, once asked for. Never outlives it. */
   line: MessageOf<'line_replay'> | null;
+  /** The answer to "why not this move?", for the position it was asked about. */
+  counterfactual: MessageOf<'counterfactual'> | null;
   review: Review | null;
   errors: { key: number; code: string; message: string }[];
   log: LogEntry[];
@@ -88,6 +90,7 @@ export const initialState: AppState = {
   explanation: null,
   inspection: null,
   line: null,
+  counterfactual: null,
   review: null,
   errors: [],
   log: [],
@@ -120,6 +123,7 @@ export function isStale(state: AppState, message: ServerMessage): boolean {
   switch (message.type) {
     case 'symbolic_analysis':
     case 'inspection':
+    case 'counterfactual':
       return state.game === null || message.positionId !== state.game.positionId;
     case 'search_update':
     case 'search_complete':
@@ -130,8 +134,8 @@ export function isStale(state: AppState, message: ServerMessage): boolean {
       // Belongs to an imported game this client is no longer holding.
       return state.review === null || message.gameId !== state.review.gameId;
     case 'line_replay':
-      // A line belongs to the explanation on screen and to nothing else.
-      return state.explanation === null || message.searchId !== state.explanation.searchId;
+      // A line belongs to an explanation or comparison on screen and to nothing else.
+      return message.searchId !== state.explanation?.searchId && message.searchId !== state.counterfactual?.searchId;
     default:
       return false;
   }
@@ -197,7 +201,14 @@ export function reducer(state: AppState, action: Action): AppState {
             // that was just played from it; anything older would describe a
             // board that is no longer on screen.
             explanation: keep ? state.explanation : null,
-            line: keep ? state.line : null,
+            // A comparison is about one position only.
+            counterfactual: moved ? null : state.counterfactual,
+            line:
+              state.line &&
+              ((keep && state.line.searchId === state.explanation?.searchId) ||
+                (!moved && state.line.searchId === state.counterfactual?.searchId))
+                ? state.line
+                : null,
           };
         }
 
@@ -241,7 +252,24 @@ export function reducer(state: AppState, action: Action): AppState {
           return { ...base, symbolic: m };
 
         case 'explanation':
-          return { ...base, explanation: m, line: state.line?.searchId === m.searchId ? state.line : null };
+          return {
+            ...base,
+            explanation: m,
+            line:
+              state.line && (state.line.searchId === m.searchId || state.line.searchId === state.counterfactual?.searchId)
+                ? state.line
+                : null,
+          };
+
+        case 'counterfactual':
+          return {
+            ...base,
+            counterfactual: m,
+            line:
+              state.line && (state.line.searchId === m.searchId || state.line.searchId === state.explanation?.searchId)
+                ? state.line
+                : null,
+          };
 
         case 'line_replay':
           return { ...base, line: m };

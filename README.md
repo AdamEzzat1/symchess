@@ -90,6 +90,34 @@ through with the arrow keys; the graph shows the evaluation across the game.
   rough. Use Analysis on a position for a proper search.
 - `?review=sample` opens a sample game.
 
+## Why not this move?
+
+In Analysis, the Variations tab has **Why not another move?** Pick any legal
+move and the engine searches it and its own choice to the same depth, then
+reports:
+
+- both scores, the difference, and a rating of the move from fixed bands;
+- the line it expects after each move, and the material count along each;
+- what Prolog warned about the move, marked *confirmed* only if the search's
+  line really loses the material, *overruled* if the search finds nothing
+  wrong;
+- which facts the move creates and removes, and which plans lose the facts
+  they rested on.
+
+Each statement says where it came from and, where a rule decided its status,
+what the rule was. "Step through the line" plays the line after your move on
+the board. `&whynot=c4f7` on a position link asks the question directly.
+
+In a game review, every move gets the same comparison at depth 5: the move the
+search preferred, how much worse the game move was, and what changed in the
+evaluation and in Prolog's facts. Moves the search rates a missed chance,
+mistake or blunder are marked in the move list.
+
+Two cautions. The ratings are the search's opinion at a shallow depth: it
+calls some sound moves inaccurate and misjudges sacrifices that pay off later
+(it marks Morphy's 10.Nxb5 in the sample game). And a small difference means
+nothing; only the larger bands are worth attention.
+
 ## Use it from a chess program (UCI)
 
 ```bash

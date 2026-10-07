@@ -377,6 +377,107 @@
          (list :true '())))
 (stop-prolog)
 
+(section "comparing two positions")
+(flet ((fact (key kind) (obj "key" key "kind" kind "text" key)))
+  (let ((before (obj "facts" (list (fact "a" "pin") (fact "b" "hanging") (fact "p" "pawn_break"))))
+        (after (obj "facts" (list (fact "a" "pin") (fact "c" "fork")))))
+    (multiple-value-bind (added removed) (fact-delta before after)
+      (check "a fact only in the later position is added"
+             (mapcar (lambda (f) (jget f "key")) added) '("c"))
+      (check "a fact only in the earlier position is removed, and a kept one is neither"
+             (mapcar (lambda (f) (jget f "key")) removed) '("b"))
+      (check "facts that exist only for the side to move are left out of the comparison"
+             (find "p" removed :key (lambda (f) (jget f "key")) :test #'equal) nil))
+    (check "with no analysis on either side nothing is claimed"
+           (multiple-value-list (fact-delta nil nil)) '(nil nil))))
+(check "verdict bands"
+       (mapcar #'loss-verdict '(0 15 16 60 61 200 201 900))
+       '("as_good" "as_good" "inaccuracy" "inaccuracy" "mistake" "mistake" "blunder" "blunder"))
+(check "throwing away a lot while staying no worse is a missed chance, not a blunder"
+       (list (loss-verdict 360 32) (loss-verdict 360 -128) (loss-verdict 40 500))
+       '("missed_chance" "blunder" "inaccuracy"))
+(check "term changes are after minus before"
+       (jget (term-delta (obj "material" 100 "activity" 5) (obj "material" -200 "activity" 30)) "material")
+       -300)
+(let* ((terms-a (obj "material" 0 "placement" 0 "pawnStructure" 0 "bishopPair" 0 "activity" 0 "kingSafety" 0 "total" 0))
+       (terms-b (obj "material" -300 "placement" 0 "pawnStructure" 0 "bishopPair" 0 "activity" 0 "kingSafety" 0 "total" -300))
+       (before (list :score 20 :terms terms-a :analysis nil))
+       (after (list :score -290 :terms terms-b :analysis nil))
+       (dropped (list :same nil :best-san "Nc3" :best-score 20 :move-score -290 :depth 5))
+       (change (review-change "Nxe5" 1 before after dropped)))
+  (check "the starting position has no change to report" (review-change "x" 1 nil before nil) :null)
+  (check "a move far worse than the search's choice is a blunder"
+         (list (jget change "verdict") (jget change "lossCp") (jget change "best")) '("blunder" 310 "Nc3"))
+  (check "it says which move the search preferred"
+         (and (search "preferred Nc3" (first (jget change "lines"))) t) t)
+  (check "the search's own move is never marked down, whatever the scores did afterwards"
+         (let ((c (review-change "Rxd7" -1 before after
+                                 (list :same t :best-san "Rxd7" :best-score -143 :move-score -143 :depth 5))))
+           (list (jget c "verdict") (jget c "lossCp")))
+         '("best" 0))
+  (check "it names the evaluator's term when the position itself accounts for the change"
+         (and (find-if (lambda (line) (search "material -3.00" line)) (jget change "lines")) t) t)
+  (check "it does not blame the evaluator's terms when they moved the other way"
+         (let ((c (review-change "e5" -1 (list :score 0 :terms terms-b :analysis nil)
+                                 (list :score 80 :terms terms-a :analysis nil) nil)))
+           (and (find-if (lambda (line) (search "what the search sees ahead" line)) (jget c "lines")) t))
+         nil)
+  (check "a change the standing position cannot explain is put down to the search"
+         (let ((c (review-change "Qe7" -1 (list :score 100 :terms terms-a :analysis nil)
+                                 (list :score 300 :terms terms-a :analysis nil) nil)))
+           (and (find-if (lambda (line) (search "what the search sees ahead" line)) (jget c "lines")) t))
+         t)
+  (check "a small change is called small"
+         (let ((c (review-change "a3" 1 before (list :score 10 :terms terms-a :analysis nil) nil)))
+           (and (search "barely moved" (first (jget c "lines"))) t))
+         t)
+  (check "no verdict without a comparison, and no score where the game has ended"
+         (let ((c (review-change "Qh7#" 1 before (list :score nil :terms terms-a :analysis nil) nil)))
+           (list (jget c "verdict") (jget c "after")))
+         '(:null :null)))
+
+(section "why not this move?")
+;; Search-only here; the Prolog parts are exercised end to end and by the benchmark.
+(let ((*swipl-program* "symchess-no-such-prolog")
+      (*error-output* (make-broadcast-stream)))
+  (stop-prolog)
+  (flet ((compare (fen uci)
+           (let* ((p (pos-from-fen fen))
+                  (move (parse-uci-move p uci))
+                  (best (progn (tt-clear) (search-position p :max-depth 4)))
+                  (alt (if (= move (search-result-best-move best))
+                           best
+                           (search-line p move (search-result-depth best)))))
+             (build-counterfactual p best alt nil))))
+    (let ((bad (compare "4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1" "d2d5")))
+      (check "giving up the queen for a pawn is called a blunder"
+             (getf-string bad "verdict") "blunder")
+      (check "the loss is reported in centipawns"
+             (> (getf-string bad "lossCp") 500) t)
+      (check "the line shown is the one that follows the asked move"
+             (first (getf-string bad "line")) "Qxd5")
+      (check "the reply that punishes it is in that line"
+             (second (getf-string bad "line")) "exd5")
+      (check "it says the comparison is search-only without Prolog"
+             (and (find-if (lambda (i) (search "search-only" (jget i "text")))
+                           (getf-string bad "items"))
+                  t)
+             t)
+      (check "arrows: the asked move, the engine's move, the reply"
+             (mapcar (lambda (v) (jget v "style")) (getf-string bad "viz"))
+             '("asked" "pv" "threat")))
+    (let ((same (compare "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1" "a1a8")))
+      (check "asking about the engine's own move says so"
+             (list (getf-string same "verdict") (getf-string same "isBest") (getf-string same "lossCp"))
+             '("best" :true :null)))
+    (check "the position is left as it was"
+           (let ((p (pos-from-fen "4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1")))
+             (build-counterfactual p (search-position p :max-depth 3)
+                                   (search-line p (parse-uci-move p "d2d5") 3) nil)
+             (pos-to-fen p))
+           "4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1")))
+(stop-prolog)
+
 (section "reading standard notation")
 (let ((fens '("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
               "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"

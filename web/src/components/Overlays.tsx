@@ -45,6 +45,7 @@ const STYLES: Record<string, StyleSpec> = {
   semi_open: { color: TONE.pv, width: 4 },
   plan: { color: TONE.pv, width: 4.5, dashed: true },
   inspect: { color: TONE.inspect, width: 3 },
+  asked: { color: TONE.weak, width: 5, dashed: true },
 };
 
 const FALLBACK: StyleSpec = { color: TONE.neutral, width: 4.5 };

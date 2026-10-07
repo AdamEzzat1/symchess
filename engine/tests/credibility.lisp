@@ -124,6 +124,8 @@ have a legal capture with a positive exchange value."
       (confirmed-total 0) (confirmed-bad '())
       (hanging-claims 0) (hanging-backed 0)
       (deep-disagreements '())
+      (why-total 0) (why-right 0) (why-misses '())
+      (warned-total 0) (warned-bad '())
       (prolog-ok t)
       (nodes 0) (time 0) (searched 0))
   (flet ((bump (table key index &optional (by 1))
@@ -185,6 +187,35 @@ have a legal capture with a positive exchange value."
                         (if (and got (equal (jget got "status") (second want)))
                             (incf says-right)
                             (push (list id want (and got (jget got "status"))) says-misses)))))))
+              ;; --- "why not this move?": does the verdict match the label?
+              ;; A move labelled as one to avoid must be rated a mistake, a
+              ;; blunder or a missed chance; a move labelled best must be rated the engine's
+              ;; choice or about as good. And a Prolog warning may be called
+              ;; confirmed only where the search also rates the move worse.
+              (flet ((ask (uci wanted)
+                       (let ((m (parse-uci-move p uci)))
+                         (when m
+                           (let* ((alt (if (= m (search-result-best-move result))
+                                           result
+                                           (search-line p m (search-result-depth result))))
+                                  (answer (build-counterfactual p result alt analysis))
+                                  (verdict (field answer "verdict")))
+                             (incf why-total)
+                             (if (member verdict wanted :test #'string=)
+                                 (incf why-right)
+                                 (push (list id uci verdict wanted) why-misses))
+                             (dolist (item (field answer "items"))
+                               (when (and (equal (jget item "source") "prolog")
+                                          (equal (jget item "status") "confirmed")
+                                          (eql 0 (search "Prolog warned" (jget item "text"))))
+                                 (incf warned-total)
+                                 (unless (member verdict '("mistake" "blunder" "missed_chance")
+                                                 :test #'string=)
+                                   (push (list id uci (jget item "text")) warned-bad)))))))))
+                ;; "Missed chance" counts: a move that throws a win away for a
+                ;; draw is one to avoid, though it does not lose.
+                (dolist (uci avoid) (ask uci '("mistake" "blunder" "missed_chance")))
+                (when best (ask (first best) '("best" "as_good"))))
               ;; --- optional: is the label itself right?
               (when (and (equal *mode* "deep") (or best avoid))
                 (tt-clear)
@@ -239,6 +270,15 @@ have a legal capture with a positive exchange value."
                    (- confirmed-total (length confirmed-bad)) confirmed-total)
            (dolist (x (reverse confirmed-bad))
              (format t "     ~A: ~A -- ~A~%" (first x) (second x) (third x)))))
+
+    (format t "~%== 4. \"Why not this move?\" verdicts~%")
+    (format t "   verdict matched the label: ~D of ~D (~A)~%" why-right why-total (percent why-right why-total))
+    (dolist (x (reverse why-misses))
+      (format t "     ~A: ~A was rated ~A, wanted ~{~A~^ or ~}~%" (first x) (second x) (third x) (fourth x)))
+    (format t "   Prolog warnings called confirmed where the search also rates the move worse: ~D of ~D~%"
+            (- warned-total (length warned-bad)) warned-total)
+    (dolist (x (reverse warned-bad))
+      (format t "     ~A: ~A -- ~A~%" (first x) (second x) (third x)))
 
     (format t "~%== By category~%")
     (format t "   ~24A ~9@A ~4@A ~5@A ~4@A ~6@A~%" "category" "positions" "hit" "extra" "miss" "moves")

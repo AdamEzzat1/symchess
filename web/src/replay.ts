@@ -68,7 +68,7 @@ function stepView(state: AppState, step: LineStep, index: number, positionId: nu
     step,
     game: shown,
     // The search and the clicked-square inspection are about the real position.
-    state: { ...state, game: shown, symbolic, search: null, inspection: null },
+    state: { ...state, game: shown, symbolic, search: null, inspection: null, counterfactual: null },
   };
 }
 

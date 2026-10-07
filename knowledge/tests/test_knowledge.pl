@@ -516,6 +516,35 @@ renders(Kind, Fen) :-
     get_dict(viz, Dict, Viz), Viz \== [],
     !.
 
+test(a_fact_keeps_its_key_when_something_else_changes, [nondet]) :-
+    % the same pin, before and after an unrelated pawn move: other facts come
+    % and go, the pin's key does not change
+    pin_key("r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4", K1),
+    pin_key("r1bqkbnr/ppp2ppp/2np4/1B2p3/P3P3/5N2/1PPP1PPP/RNBQK2R b KQkq - 0 4", K2),
+    K1 == K2.
+
+test(a_pin_is_the_same_pin_when_the_pinning_piece_steps_back, [nondet]) :-
+    pin_key("r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4", K1),
+    pin_key("r1bqkbnr/ppp2ppp/2np4/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 4", K2),
+    K1 == K2.
+
+test(facts_about_different_pieces_have_different_keys) :-
+    fen_pos("4k3/8/8/2r1n3/3P4/8/8/3RK3 b - - 0 1", Pos),
+    analyze(Pos, [], Reply),
+    get_dict(facts, Reply, Facts),
+    findall(K, ( member(F, Facts), get_dict(key, F, K) ), Keys),
+    Keys \== [],
+    sort(Keys, Unique),
+    length(Keys, N), length(Unique, N).
+
+pin_key(Fen, Key) :-
+    fen_pos(Fen, Pos),
+    analyze(Pos, [], Reply),
+    get_dict(facts, Reply, Facts),
+    member(F, Facts),
+    get_dict(kind, F, pin),
+    get_dict(key, F, Key).
+
 test(new_facts_lead_to_plans, [nondet]) :-
     fen_pos("6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", Pos),
     analyze(Pos, [], Reply),
