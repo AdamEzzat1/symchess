@@ -117,13 +117,16 @@ describe('the files in results/', () => {
     expect(looksRecorded(RECORDED.matches)).toBe(true);
     expect(looksRecorded(RECORDED.credibility)).toBe(true);
     expect(looksRecorded(RECORDED.ladder)).toBe(true);
+    expect(looksRecorded(RECORDED.strength)).toBe(true);
   });
 
-  it('render as four tables with a row for every configuration, match and measure', () => {
+  it('render as six tables with a row for every configuration, match and measure', () => {
     const tables = recordedTables();
-    expect(tables).toHaveLength(5);
-    expect(tables[3]!.rows).toHaveLength(RECORDED.ladder.rows.length);
-    expect(tables[3]!.title).toContain('levels');
+    expect(tables).toHaveLength(6);
+    expect(tables[3]!.rows).toHaveLength(RECORDED.strength.rows.length);
+    expect(tables[3]!.rows.every((row) => row[1]!.endsWith(' ms'))).toBe(true);
+    expect(tables[4]!.rows).toHaveLength(RECORDED.ladder.rows.length);
+    expect(tables[4]!.title).toContain('levels');
     expect(tables[0]!.rows).toHaveLength(RECORDED.search.configurations.length);
     expect(tables[1]!.rows).toHaveLength(RECORDED.search.configurations.length);
     expect(tables[2]!.rows).toHaveLength(RECORDED.matches.rows.length);
@@ -142,7 +145,9 @@ describe('the files in results/', () => {
 
   it('were all produced by the same sources', () => {
     const digests = new Set(
-      [RECORDED.search, RECORDED.matches, RECORDED.ladder, RECORDED.credibility].map((f) => f.run.sourceDigest),
+      [RECORDED.search, RECORDED.matches, RECORDED.ladder, RECORDED.strength, RECORDED.credibility].map(
+        (f) => f.run.sourceDigest,
+      ),
     );
     expect(digests.size).toBe(1);
   });

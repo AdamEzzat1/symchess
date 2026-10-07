@@ -7,6 +7,7 @@ import credibilityFile from '../../results/credibility.json';
 import ladderFile from '../../results/ladder.json';
 import matchesFile from '../../results/matches.json';
 import searchFile from '../../results/search.json';
+import strengthFile from '../../results/strength.json';
 
 /** What a reader needs to trace a figure to the run that produced it. */
 export interface Run {
@@ -178,6 +179,27 @@ export function matchTable(data: MatchResults, title = 'Does it win more games?'
   };
 }
 
+/** The engine against an earlier version of itself, at each time per move that was played. */
+export function strengthTable(data: MatchResults): RecordedTable {
+  const games = data.rows[0]?.games ?? data.openings.length * 2;
+  return {
+    title: 'Is it stronger than it was?',
+    note: `${data.what} With ${games} games a result has to be about fifteen points from 50% before it shows anything, and this is the engine against its own earlier self, not against anything else.`,
+    head: ['Match', 'Time per move', 'Games', 'Won', 'Drawn', 'Lost', 'Points'],
+    rows: data.rows.map((row) => [
+      `${row.candidate} against ${row.baseline}`,
+      `${row.msPerMove} ms`,
+      String(row.games),
+      String(row.wins),
+      String(row.draws),
+      String(row.losses),
+      row.points === null ? 'n/a' : `${row.points.toFixed(1)}%`,
+    ]),
+    details: data.complete ? [] : ['This run was stopped before every match had been played.'],
+    run: data.run,
+  };
+}
+
 export function credibilityTable(data: CredibilityResults): RecordedTable {
   const measures: [string, (set: CredibilitySet) => string][] = [
     ['Positions', (s) => String(s.positions)],
@@ -228,11 +250,13 @@ export const RECORDED: {
   search: SearchResults;
   matches: MatchResults;
   ladder: MatchResults;
+  strength: MatchResults;
   credibility: CredibilityResults;
 } = {
   search: searchFile,
   matches: matchesFile,
   ladder: ladderFile,
+  strength: strengthFile,
   credibility: credibilityFile,
 };
 
@@ -241,6 +265,7 @@ export function recordedTables(data = RECORDED): RecordedTable[] {
     depthTable(data.search),
     movesTable(data.search),
     matchTable(data.matches),
+    strengthTable(data.strength),
     matchTable(data.ladder, 'Are the difficulty levels really different?', false),
     credibilityTable(data.credibility),
   ];

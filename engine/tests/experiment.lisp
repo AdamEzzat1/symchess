@@ -13,6 +13,10 @@
 ;;;;       Club search to their own fixed depth; only Expert uses the clock,
 ;;;;       so [ms] is Expert's time per move  -> results/ladder.json
 ;;;;
+;;;;   sbcl --script engine/tests/experiment.lisp strength [ms ...]   about 10 minutes at 100 ms
+;;;;       the engine against itself as it was at version 0.7.0, 48 games at
+;;;;       each time given (default 100 and 300)   -> results/strength.json
+;;;;
 ;;;;   sbcl --script engine/tests/experiment.lisp verify
 ;;;;       were the recorded files made by the sources as they are now? Compares
 ;;;;       each file's fingerprint with the engine and rule files on disk and
@@ -137,6 +141,33 @@
               "rows" (reverse rows)))))
     (format t "~%written to ~A~%" (enough-namestring (results-path file)))))
 
+(defun run-strength (times)
+  "The engine as it is against the engine as it was, over twice the usual
+openings, once for each time per move in TIMES."
+  (let ((rows '())
+        (openings (append *match-openings* *more-openings*))
+        (run (run-metadata (format nil "sbcl --script engine/tests/experiment.lisp strength~{ ~D~}" times))))
+    (dolist (ms times)
+      (format t "~&== new against v07, ~D ms per move, ~D games~%" ms (* 2 (length openings)))
+      (let ((row (play-match "new" "v07" ms
+                             :openings openings
+                             :on-game (lambda (opening white scored)
+                                        (declare (ignore opening white))
+                                        (format t "~A" (ecase scored (:win "+") (:draw "=") (:loss "-")))
+                                        (finish-output)))))
+        (push row rows)
+        (format t "~%   ~D wins, ~D draws, ~D losses: ~,1F% of the points~%"
+                (jget row "wins") (jget row "draws") (jget row "losses") (jget row "points")))
+      (write-results
+       "strength"
+       (obj "run" run
+            "configurations" (mapcar #'configuration-object '("new" "v07"))
+            "what" "The engine as it is now against itself as it was at version 0.7.0: twenty-four openings, each played twice with colours swapped, both sides with the same time per move."
+            "openings" (mapcar #'first openings)
+            "complete" (jbool (= (length rows) (length times)))
+            "rows" (reverse rows))))
+    (format t "~%written to ~A~%" (enough-namestring (results-path "strength")))))
+
 (defun run-ladder (ms)
   (run-pairings
    "ladder"
@@ -177,7 +208,7 @@
   (cond ((equal mode "verify")
          (let ((now (source-digest)) (stale 0))
            (format t "~&sources on disk: ~A~%" now)
-           (dolist (name '("search" "matches" "ladder" "credibility"))
+           (dolist (name '("search" "matches" "ladder" "strength" "credibility"))
              (let* ((path (results-path name))
                     (run (and (probe-file path)
                               (jget (json-decode
@@ -195,6 +226,8 @@
            (sb-ext:exit :code (if (zerop stale) 0 1))))
         ((equal mode "matches") (run-matches (or ms 100)))
         ((equal mode "ladder") (run-ladder (or ms 1000)))
+        ((equal mode "strength")
+         (run-strength (or (mapcar #'parse-integer (rest *arguments*)) '(100 300))))
         (t (run-search-measures))))
 (set-engine-features)
 (stop-prolog)

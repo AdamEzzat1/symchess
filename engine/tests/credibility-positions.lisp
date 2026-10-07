@@ -141,7 +141,10 @@
      :expect (("pin" "d4") ("hanging" "d4")))
     ("hanging-defender-is-pinned" "hanging pieces"
      "4k3/8/4p3/3n4/8/2N5/8/4RK2 w - - 0 1"
-     :expect (("pin" "e6") ("pinned_defender" "e6") ("hanging" "c3") ("hanging" "e6"))
+     :expect (("pin" "e6") ("pinned_defender" "e6") ("hanging" "c3") ("hanging" "e6")
+              ;; added when the rule learned that a pinned pawn does not defend:
+              ;; the knight it "guards" can simply be taken, which is the best move
+              ("hanging" "d5"))
      :best ("c3d5"))
     ("hanging-bishop-to-move" "hanging pieces"
      "4k3/8/8/3b4/8/8/8/3RK3 b - - 0 1"

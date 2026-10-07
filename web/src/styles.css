@@ -603,6 +603,24 @@ select,
   touch-action: none;
   cursor: pointer;
 }
+.board-3d {
+  position: relative;
+}
+/* Camera presets, tucked into the corner of the 3D view. */
+.board-3d-views {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgb(10 16 24 / 72%);
+  font-size: 0.8rem;
+}
+.board-3d-views .btn-toggle {
+  padding: 4px 10px;
+}
 .board-3d-loading,
 .board-3d-failed {
   aspect-ratio: 1;

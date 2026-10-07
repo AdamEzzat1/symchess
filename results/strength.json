@@ -1,0 +1,72 @@
+{
+  "run": {
+    "date": "2026-10-07 22:42 UTC",
+    "command": "sbcl --script engine/tests/experiment.lisp strength 100 300",
+    "engine": "symchess 0.8.0",
+    "lisp": "SBCL 2.6.9",
+    "prolog": "SWI-Prolog 10.0.2",
+    "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
+    "processors": 8,
+    "note": "Run while the frontend was being built and screenshots taken on the same machine.",
+    "sourceDigest": "6fdb40c9d7c20306e9722f77538e2952",
+    "commit": "d6ac113",
+    "uncommittedChanges": true
+  },
+  "configurations": [
+    {
+      "name": "new",
+      "description": "Everything switched on: the engine as it plays.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true,
+        "futility": true,
+        "qchecks": true,
+        "nullr": true
+      },
+      "rootHints": false
+    },
+    {
+      "name": "v07",
+      "description": "The engine as it played at version 0.7.0: the five features above, and none of the three below.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
+      },
+      "rootHints": false
+    }
+  ],
+  "what": "The engine as it is now against itself as it was at version 0.7.0: twenty-four openings, each played twice with colours swapped, both sides with the same time per move.",
+  "openings": ["Open game","Queen's gambit","Sicilian","King's Indian","French","English","Reti","Caro-Kann","London","Scandinavian","Modern","Dutch","Ruy Lopez","Slav","Nimzo-Indian","Pirc","Petroff","Vienna","Alekhine","Queen's Indian","Grunfeld","Scotch","Bird","Benoni"],
+  "complete": true,
+  "rows": [
+    {
+      "candidate": "new",
+      "baseline": "v07",
+      "msPerMove": 100,
+      "games": 48,
+      "wins": 23,
+      "draws": 10,
+      "losses": 15,
+      "points": 58.333
+    },
+    {
+      "candidate": "new",
+      "baseline": "v07",
+      "msPerMove": 300,
+      "games": 48,
+      "wins": 25,
+      "draws": 13,
+      "losses": 10,
+      "points": 65.625
+    }
+  ]
+}

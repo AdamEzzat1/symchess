@@ -1,15 +1,15 @@
 {
   "run": {
-    "date": "2026-10-07 17:38 UTC",
+    "date": "2026-10-07 22:44 UTC",
     "command": "sbcl --script engine/tests/experiment.lisp matches 100",
-    "engine": "symchess 0.7.0",
+    "engine": "symchess 0.8.0",
     "lisp": "SBCL 2.6.9",
     "prolog": "SWI-Prolog 10.0.2",
     "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
     "processors": 8,
-    "note": "the level ladder was running on another core",
-    "sourceDigest": "69a2989a53a7c2260bd778cfa9f7a02b",
-    "commit": "08dcf22",
+    "note": "Run alongside another measuring run and a frontend build on the same machine.",
+    "sourceDigest": "6fdb40c9d7c20306e9722f77538e2952",
+    "commit": "d6ac113",
     "uncommittedChanges": true
   },
   "configurations": [
@@ -21,7 +21,10 @@
         "see": true,
         "lmr": true,
         "aspiration": true,
-        "delta": true
+        "delta": true,
+        "futility": true,
+        "qchecks": true,
+        "nullr": true
       },
       "rootHints": false
     },
@@ -33,7 +36,10 @@
         "see": false,
         "lmr": false,
         "aspiration": false,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -45,7 +51,10 @@
         "see": true,
         "lmr": true,
         "aspiration": true,
-        "delta": true
+        "delta": true,
+        "futility": true,
+        "qchecks": true,
+        "nullr": true
       },
       "rootHints": true
     },
@@ -57,7 +66,10 @@
         "see": false,
         "lmr": false,
         "aspiration": false,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -69,7 +81,10 @@
         "see": true,
         "lmr": false,
         "aspiration": false,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -81,7 +96,10 @@
         "see": false,
         "lmr": true,
         "aspiration": false,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -93,7 +111,10 @@
         "see": false,
         "lmr": false,
         "aspiration": true,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -105,7 +126,10 @@
         "see": false,
         "lmr": false,
         "aspiration": false,
-        "delta": true
+        "delta": true,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     }
@@ -119,40 +143,40 @@
       "baseline": "old",
       "msPerMove": 100,
       "games": 24,
-      "wins": 14,
-      "draws": 4,
-      "losses": 6,
-      "points": 66.667
+      "wins": 11,
+      "draws": 5,
+      "losses": 8,
+      "points": 56.250
     },
     {
       "candidate": "hints",
       "baseline": "new",
       "msPerMove": 100,
       "games": 24,
-      "wins": 4,
-      "draws": 7,
-      "losses": 13,
-      "points": 31.250
+      "wins": 1,
+      "draws": 2,
+      "losses": 21,
+      "points": 8.333
     },
     {
       "candidate": "activity",
       "baseline": "old",
       "msPerMove": 100,
       "games": 24,
-      "wins": 13,
-      "draws": 2,
-      "losses": 9,
-      "points": 58.333
+      "wins": 6,
+      "draws": 6,
+      "losses": 12,
+      "points": 37.500
     },
     {
       "candidate": "see",
       "baseline": "old",
       "msPerMove": 100,
       "games": 24,
-      "wins": 12,
-      "draws": 2,
-      "losses": 10,
-      "points": 54.167
+      "wins": 7,
+      "draws": 5,
+      "losses": 12,
+      "points": 39.583
     },
     {
       "candidate": "lmr",
@@ -160,29 +184,29 @@
       "msPerMove": 100,
       "games": 24,
       "wins": 10,
-      "draws": 9,
-      "losses": 5,
-      "points": 60.417
+      "draws": 7,
+      "losses": 7,
+      "points": 56.250
     },
     {
       "candidate": "aspiration",
       "baseline": "old",
       "msPerMove": 100,
       "games": 24,
-      "wins": 8,
-      "draws": 10,
-      "losses": 6,
-      "points": 54.167
+      "wins": 11,
+      "draws": 6,
+      "losses": 7,
+      "points": 58.333
     },
     {
       "candidate": "delta",
       "baseline": "old",
       "msPerMove": 100,
       "games": 24,
-      "wins": 10,
-      "draws": 4,
-      "losses": 10,
-      "points": 50.000
+      "wins": 12,
+      "draws": 5,
+      "losses": 7,
+      "points": 60.417
     }
   ]
 }

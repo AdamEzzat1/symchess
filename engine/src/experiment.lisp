@@ -11,7 +11,10 @@
 
 ;;; ------------------------------------------------------ named configurations
 
-(defparameter *engine-features* '(:activity :see :lmr :aspiration :delta))
+(defparameter *engine-features* '(:activity :see :lmr :aspiration :delta :futility :qchecks :nullr))
+
+(defparameter *features-of-0.7* '(:activity :see :lmr :aspiration :delta)
+  "What was switched on in the engine as it played at version 0.7.0.")
 
 (defparameter *experiment-configurations*
   '(("old" "The first engine: every optional feature switched off.")
@@ -20,6 +23,10 @@
     ("lmr" "The first engine plus late move reductions.")
     ("aspiration" "The first engine plus aspiration windows at the root.")
     ("delta" "The first engine plus delta pruning in the quiescence search.")
+    ("v07" "The engine as it played at version 0.7.0: the five features above, and none of the three below.")
+    ("no-futility" "Everything except reverse futility pruning (stopping at shallow nodes that already stand well above what is needed).")
+    ("no-qchecks" "Everything except answering checks in the quiescence search.")
+    ("no-nullr" "Everything except the deeper null-move reduction at depth 6 and beyond.")
     ("new" "Everything switched on: the engine as it plays.")
     ("hints" "Everything switched on, and Prolog's ranking of the moves used to order them at the root. The time Prolog takes is counted."))
   "Name and description. What each name switches on is decided by FEATURES-FOR.")
@@ -34,6 +41,9 @@ name (everything but it)."
   (flet ((all (value) (loop for f in *engine-features* append (list f value))))
     (cond ((member name '("new" "hints") :test #'string=) (all t))
           ((string= name "old") (all nil))
+          ((string= name "v07")
+           (loop for f in *engine-features*
+                 append (list f (and (member f *features-of-0.7*) t))))
           ((and (> (length name) 3) (string= (subseq name 0 3) "no-"))
            (loop for f in *engine-features*
                  append (list f (not (string= (subseq name 3) (feature-name f))))))
@@ -126,6 +136,21 @@ within TIME-MS, plays a right move and no wrong one."
     ("Scandinavian"       "e2e4" "d7d5" "e4d5" "d8d5")
     ("Modern"             "e2e4" "g7g6" "d2d4" "f8g7")
     ("Dutch"              "d2d4" "f7f5" "g2g3" "g8f6")))
+
+(defparameter *more-openings*
+  '(("Ruy Lopez"          "e2e4" "e7e5" "g1f3" "b8c6" "f1b5" "a7a6")
+    ("Slav"               "d2d4" "d7d5" "c2c4" "c7c6")
+    ("Nimzo-Indian"       "d2d4" "g8f6" "c2c4" "e7e6" "b1c3" "f8b4")
+    ("Pirc"               "e2e4" "d7d6" "d2d4" "g8f6")
+    ("Petroff"            "e2e4" "e7e5" "g1f3" "g8f6")
+    ("Vienna"             "e2e4" "e7e5" "b1c3" "g8f6")
+    ("Alekhine"           "e2e4" "g8f6" "e4e5" "f6d5")
+    ("Queen's Indian"     "d2d4" "g8f6" "c2c4" "e7e6" "g1f3" "b7b6")
+    ("Grunfeld"           "d2d4" "g8f6" "c2c4" "g7g6" "b1c3" "d7d5")
+    ("Scotch"             "e2e4" "e7e5" "g1f3" "b8c6" "d2d4" "e5d4")
+    ("Bird"               "f2f4" "d7d5" "g1f3" "g8f6")
+    ("Benoni"             "d2d4" "g8f6" "c2c4" "c7c5" "d4d5" "e7e6"))
+  "Twelve more, for a match that needs more games than the usual twelve give.")
 
 (defun opening-position (moves)
   (let ((p (pos-from-fen +start-fen+)))

@@ -1,15 +1,15 @@
 {
   "run": {
-    "date": "2026-10-07 18:18 UTC",
+    "date": "2026-10-07 23:03 UTC",
     "command": "sbcl --script engine/tests/credibility.lisp",
-    "engine": "symchess 0.7.0",
+    "engine": "symchess 0.8.0",
     "lisp": "SBCL 2.6.9",
     "prolog": "SWI-Prolog 10.0.2",
     "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
     "processors": 8,
-    "note": null,
-    "sourceDigest": "69a2989a53a7c2260bd778cfa9f7a02b",
-    "commit": "08dcf22",
+    "note": "Run alongside other measuring runs on the same machine.",
+    "sourceDigest": "6fdb40c9d7c20306e9722f77538e2952",
+    "commit": "d6ac113",
     "uncommittedChanges": true
   },
   "what": "Labelled positions: does Prolog report the tactical facts that are really there, does the search play a right move, and does the explanation give each idea the right status?",
@@ -22,7 +22,7 @@
       "positions": 39,
       "prolog": true,
       "motifs": {
-        "found": 41,
+        "found": 42,
         "extra": 0,
         "missed": 0,
         "reportedButNotThere": [],
@@ -38,8 +38,8 @@
         "of": 9
       },
       "confirmedBacked": {
-        "right": 13,
-        "of": 13
+        "right": 14,
+        "of": 14
       },
       "whyNot": {
         "right": 20,
@@ -50,20 +50,20 @@
         "of": 4
       },
       "traceable": {
-        "right": 266,
-        "of": 266
+        "right": 270,
+        "of": 270
       },
       "prologSentences": {
-        "confirmed": 13,
+        "confirmed": 14,
         "unconfirmed": 2,
-        "overruled": 11,
-        "unchecked": 28
+        "overruled": 10,
+        "unchecked": 29
       },
       "topMove": {
-        "same": 10,
+        "same": 11,
         "of": 20,
-        "differedWithLabel": 6,
-        "searchRight": 6,
+        "differedWithLabel": 5,
+        "searchRight": 5,
         "prologRight": 1
       }
     },

@@ -1,15 +1,15 @@
 {
   "run": {
-    "date": "2026-10-07 18:18 UTC",
+    "date": "2026-10-07 23:03 UTC",
     "command": "sbcl --script engine/tests/experiment.lisp",
-    "engine": "symchess 0.7.0",
+    "engine": "symchess 0.8.0",
     "lisp": "SBCL 2.6.9",
     "prolog": "SWI-Prolog 10.0.2",
     "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
     "processors": 8,
-    "note": null,
-    "sourceDigest": "69a2989a53a7c2260bd778cfa9f7a02b",
-    "commit": "08dcf22",
+    "note": "Run alongside other measuring runs on the same machine; the time columns are unreliable, the position counts are exact.",
+    "sourceDigest": "6fdb40c9d7c20306e9722f77538e2952",
+    "commit": "d6ac113",
     "uncommittedChanges": true
   },
   "configurations": [
@@ -21,7 +21,10 @@
         "see": false,
         "lmr": false,
         "aspiration": false,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -33,7 +36,10 @@
         "see": false,
         "lmr": false,
         "aspiration": false,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -45,7 +51,10 @@
         "see": true,
         "lmr": false,
         "aspiration": false,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -57,7 +66,10 @@
         "see": false,
         "lmr": true,
         "aspiration": false,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -69,7 +81,10 @@
         "see": false,
         "lmr": false,
         "aspiration": true,
-        "delta": false
+        "delta": false,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -81,7 +96,70 @@
         "see": false,
         "lmr": false,
         "aspiration": false,
-        "delta": true
+        "delta": true,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "v07",
+      "description": "The engine as it played at version 0.7.0: the five features above, and none of the three below.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true,
+        "futility": false,
+        "qchecks": false,
+        "nullr": false
+      },
+      "rootHints": false
+    },
+    {
+      "name": "no-futility",
+      "description": "Everything except reverse futility pruning (stopping at shallow nodes that already stand well above what is needed).",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true,
+        "futility": false,
+        "qchecks": true,
+        "nullr": true
+      },
+      "rootHints": false
+    },
+    {
+      "name": "no-qchecks",
+      "description": "Everything except answering checks in the quiescence search.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true,
+        "futility": true,
+        "qchecks": false,
+        "nullr": true
+      },
+      "rootHints": false
+    },
+    {
+      "name": "no-nullr",
+      "description": "Everything except the deeper null-move reduction at depth 6 and beyond.",
+      "features": {
+        "activity": true,
+        "see": true,
+        "lmr": true,
+        "aspiration": true,
+        "delta": true,
+        "futility": true,
+        "qchecks": true,
+        "nullr": false
       },
       "rootHints": false
     },
@@ -93,7 +171,10 @@
         "see": true,
         "lmr": true,
         "aspiration": true,
-        "delta": true
+        "delta": true,
+        "futility": true,
+        "qchecks": true,
+        "nullr": true
       },
       "rootHints": false
     },
@@ -105,7 +186,10 @@
         "see": true,
         "lmr": true,
         "aspiration": true,
-        "delta": true
+        "delta": true,
+        "futility": true,
+        "qchecks": true,
+        "nullr": true
       },
       "rootHints": true
     }
@@ -120,7 +204,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 2353926,
-        "searchMs": 7615,
+        "searchMs": 8650,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -129,7 +213,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 2356883,
-        "searchMs": 8947,
+        "searchMs": 13137,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
       },
@@ -138,7 +222,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 1823471,
-        "searchMs": 5991,
+        "searchMs": 5721,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -147,7 +231,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 639696,
-        "searchMs": 2115,
+        "searchMs": 2129,
         "prologMs": null,
         "moves": ["b1c3","b1c3","b5c6","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","b1c3","g1f3","b1c3","g1f3","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -156,7 +240,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 2369802,
-        "searchMs": 6685,
+        "searchMs": 7049,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -165,27 +249,63 @@
         "depth": 6,
         "positions": 19,
         "nodes": 2076763,
-        "searchMs": 5482,
+        "searchMs": 7302,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
+      },
+      {
+        "configuration": "v07",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 477061,
+        "searchMs": 3512,
+        "prologMs": null,
+        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","f1b5","g1f3","b1c3","g1f3","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
+      },
+      {
+        "configuration": "no-futility",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 513931,
+        "searchMs": 3683,
+        "prologMs": null,
+        "moves": ["g1f3","b1c3","d2d4","e2a6","d5c7","d2d4","g2f3","d2d4","c4d5","f1b5","g1f3","b1c3","g1f3","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
+      },
+      {
+        "configuration": "no-qchecks",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 383249,
+        "searchMs": 1879,
+        "prologMs": null,
+        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","b1c3","g2f3","d2d4","c4d5","f1b5","g1f3","b1c3","g1f3","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
+      },
+      {
+        "configuration": "no-nullr",
+        "depth": 6,
+        "positions": 19,
+        "nodes": 415187,
+        "searchMs": 2072,
+        "prologMs": null,
+        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","d2d4","g2f3","d2d4","c4d5","f1b5","g1f3","b1c3","g1f3","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
       },
       {
         "configuration": "new",
         "depth": 6,
         "positions": 19,
-        "nodes": 477061,
-        "searchMs": 1918,
+        "nodes": 415187,
+        "searchMs": 2430,
         "prologMs": null,
-        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","f1b5","g1f3","b1c3","g1f3","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
+        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","d2d4","g2f3","d2d4","c4d5","f1b5","g1f3","b1c3","g1f3","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
       },
       {
         "configuration": "hints",
         "depth": 6,
         "positions": 19,
-        "nodes": 476932,
-        "searchMs": 2141,
-        "prologMs": 2058,
-        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","f1b5","g1f3","e4e5","g1f3","d2d4","e4e5","b1c3","b1c3","b1c3","g1f3"]
+        "nodes": 405327,
+        "searchMs": 2628,
+        "prologMs": 2584,
+        "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","d2d4","g2f3","d2d4","c4d5","f1b5","g1f3","e4e5","g1f3","d2d4","e4e5","b1c3","b1c3","b1c3","g1f3"]
       }
     ]
   },
@@ -293,6 +413,58 @@
         ]
       },
       {
+        "configuration": "v07",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 35,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          }
+        ]
+      },
+      {
+        "configuration": "no-futility",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 35,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          }
+        ]
+      },
+      {
+        "configuration": "no-qchecks",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 35,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          }
+        ]
+      },
+      {
+        "configuration": "no-nullr",
+        "depth": 6,
+        "timeLimitMs": 2000,
+        "positions": 36,
+        "right": 35,
+        "missed": [
+          {
+            "position": "held-hanging-pawn",
+            "played": "e1e2"
+          }
+        ]
+      },
+      {
         "configuration": "new",
         "depth": 6,
         "timeLimitMs": 2000,
@@ -313,8 +485,8 @@
         "right": 35,
         "missed": [
           {
-            "position": "held-hanging-pawn",
-            "played": "e1e2"
+            "position": "new-push-or-be-caught",
+            "played": "a1b2"
           }
         ]
       }

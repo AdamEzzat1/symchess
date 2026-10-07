@@ -14,7 +14,7 @@ The design, the reasoning behind it and the measured results are in
 ## What it claims, and what it does not
 
 - **Claims.** The search's sentences are numbers the search returned. Prolog's sentences are a second opinion about the position, each marked with how it stands against what the search found. Tactical facts are measured against hand-labelled positions. Every figure on the results page names the run that produced it.
-- **Does not claim.** That Prolog makes the engine play better: measured three ways, it does not. That a move the search rates lower is a mistake: it is what a depth-6 search prefers, and the interface says so. Any Elo rating.
+- **Does not claim.** That Prolog makes the engine play better: measured three ways, it does not. That the latest search changes made it stronger against anything but its own earlier self: there it scored 62.0% over 96 games. That a move the search rates lower is a mistake: it is what a depth-6 search prefers, and the interface says so. Any Elo rating.
 - **Limits.** [docs/LIMITATIONS.md](docs/LIMITATIONS.md) lists every known limit and where it stands. [docs/RESEARCH_NOTES.md](docs/RESEARCH_NOTES.md) says what outside practice was checked against.
 
 ![A fact traced back to its rule and forward to the search's verdict](docs/screenshots/trace.png)
@@ -177,7 +177,9 @@ The **Pieces** switch in the left rail changes how the game is drawn. It is pres
 
 - **Classic**: glass chess pieces on a flat board.
 - **Figures**: the same glass, drawn as statues (soldier, cleric, tower, horse, queen, king).
-- **3D**: a 3D board of carved statues (foot soldier, knight on a rearing horse, bishop with crozier, stone tower, warrior queen, king on his sword) that fight when one takes another. The shapes are built in code from simple solids, in the same ice and amethyst glass; see `docs/screenshots/statues.png`. Click to move. The analysis overlays, keyboard play and drag are only on the flat boards. Three.js is fetched only if this is chosen.
+- **3D**: a 3D board of carved statues (foot soldier, knight on a rearing horse, bishop with crozier, stone tower, warrior queen, king on his sword) that fight when one takes another. The shapes are built in code from simple solids, in the same ice and amethyst glass; see `docs/screenshots/statues.png`. Click to move. In analysis it shows the fact or plan selected in the panel (its arrows, rings and squares, with the pieces it names lit), the search's best move, and coordinates on the rim, with three camera presets: Play, Analyze and Focus. The standing analysis layers, keyboard play and drag are only on the flat boards, which remain the precise workbench. Three.js is fetched only if this is chosen.
+
+![A selected pin shown on the 3D board](docs/screenshots/board-3d-fact.png)
 
 Animations are skipped for anyone whose device asks for reduced motion.
 
@@ -310,9 +312,10 @@ logs/        Per-session event logs and Prolog stderr (git-ignored)
 
 ## What it does and does not do
 
-- Plays legal chess with iterative-deepening alpha-beta, quiescence, a
-  transposition table and standard move ordering. Its playing strength has not
-  been measured.
+- Plays legal chess with iterative-deepening alpha-beta (null-move and reverse
+  futility pruning, late move reductions), a quiescence search that answers
+  checks, a transposition table and standard move ordering. Its playing
+  strength has been measured only against earlier versions of itself.
 - Explains each engine move with sentences tagged by source (`search`, `eval`,
   `prolog`) and by how far the search backs them up (`measured`, `confirmed`,
   `unconfirmed`, `overruled`, `heuristic`).

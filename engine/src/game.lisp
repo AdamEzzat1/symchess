@@ -27,7 +27,7 @@
 
 (defvar *log-stream* nil)
 (defvar *log-lock* (sb-thread:make-mutex :name "log"))
-(defparameter *engine-version* "symchess 0.7.0")
+(defparameter *engine-version* "symchess 0.8.0")
 
 (defvar *prolog-version-string* nil)
 
@@ -81,7 +81,8 @@
 (defun apply-level-features (level)
   (if (level-full level)
       (set-engine-features)
-      (set-engine-features :activity nil :see nil :lmr nil :aspiration nil :delta nil)))
+      (set-engine-features :activity nil :see nil :lmr nil :aspiration nil :delta nil
+                           :futility nil :qchecks nil :nullr nil)))
 
 ;; Seeded from the clock, so two games at Novice do not go the same way.
 (defvar *level-random* (make-random-state t))

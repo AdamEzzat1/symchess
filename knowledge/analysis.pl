@@ -8,7 +8,7 @@
     Replies are dicts ready for json_write_dict/3.
 */
 
-:- module(analysis, [ analyze/3, inspect/3, root_facts/2, root_facts/3 ]).
+:- module(analysis, [ analyze/3, inspect/3, root_facts/2, root_facts/3, fact_basis/4 ]).
 
 :- use_module(library(lists)).
 :- use_module(library(apply)).
@@ -80,6 +80,53 @@ refuted(Ctx, Moves, pin(relative, PC, _, PSq, T, Sq, BT, BSq)) :-
     at(After, BSq, C, BT),
     attacked_by(After, C, BSq), !.
 
+%   A piece of the side to move is "trapped" only if none of its legal moves
+%   takes it somewhere safe. The rule reads attacked squares, so it misses a
+%   square that becomes safe because of the move itself (a friend behind the
+%   piece guards it once the piece has stepped forward, say).
+refuted(Ctx, Moves, trapped(C, T, Sq, _, _)) :-
+    ctx_side(Ctx, C),
+    sq_atom(Sq, From),
+    member(m(Uci, AfterPos), Moves),
+    sub_atom(Uci, 0, 2, _, From),
+    sub_atom(Uci, 2, 2, _, ToAtom),
+    sq_atom(To, ToAtom),
+    build_ctx(AfterPos, After),
+    at(After, To, C, T),
+    safe_piece(After, C, T, To), !.
+
+%   A discovered attack by the side to move needs a legal move of the masking
+%   piece that opens the line. If Lisp supplied moves and none of them does
+%   (the masking piece is itself pinned, or has nowhere to go), there is none.
+refuted(Ctx, Moves, discovered_attack(C, _, MSq, ST, SSq, _, TSq)) :-
+    Moves \== [],
+    ctx_side(Ctx, C),
+    \+ opens_line(Moves, C, MSq, ST, SSq, TSq).
+
+opens_line(Moves, C, MSq, ST, SSq, TSq) :-
+    sq_atom(MSq, From),
+    member(m(Uci, AfterPos), Moves),
+    sub_atom(Uci, 0, 2, _, From),
+    build_ctx(AfterPos, After),
+    attack(After, C, ST, SSq, TSq), !.
+
+%!  fact_basis(+Ctx, +Moves, +Fact, -Basis) is det.
+%   How far a reported fact was checked.
+%     legal_moves - it is a claim about what can be played, and it survived a
+%                   check against the legal moves Lisp supplied
+%     geometric   - read from the lines of attack on the board, and no more
+%   Only claims about the side to move can be checked, because those are the
+%   only moves Lisp sends.
+fact_basis(Ctx, Moves, Fact, legal_moves) :-
+    Moves \== [],
+    move_claim(Ctx, Fact), !.
+fact_basis(_, _, _, geometric).
+
+move_claim(Ctx, pin(relative, PC, _, _, T, _, BT, _)) :-
+    value(T, V), value(BT, V), opponent(PC, C), ctx_side(Ctx, C).
+move_claim(Ctx, trapped(C, _, _, _, _)) :- ctx_side(Ctx, C).
+move_claim(Ctx, discovered_attack(C, _, _, _, _, _, _)) :- ctx_side(Ctx, C).
+
 number_facts([], _, []).
 number_facts([F|Fs], N, [Id-F|Rest]) :-
     format(atom(Id), 'f~d', [N]),
@@ -89,10 +136,15 @@ number_facts([F|Fs], N, [Id-F|Rest]) :-
 analyze(Pos, Moves, _{facts:FactDicts, plans:PlanDicts, moves:MoveDicts}) :-
     build_ctx(Pos, Root),
     root_facts(Root, Moves, IdFacts),
-    maplist(fact_dict, IdFacts, FactDicts),
+    maplist(checked_fact_dict(Root, Moves), IdFacts, FactDicts),
     plans(Root, IdFacts, Plans),
     number_plans(Plans, 1, PlanDicts),
     maplist(move_dict(Root, IdFacts), Moves, MoveDicts).
+
+checked_fact_dict(Root, Moves, Id-Fact, Dict) :-
+    fact_dict(Id-Fact, Dict0),
+    fact_basis(Root, Moves, Fact, Basis),
+    Dict = Dict0.put(checked, Basis).
 
 number_plans([], _, []).
 number_plans([plan(Kind, Text, Because, Viz)|Ps], N,

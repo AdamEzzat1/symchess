@@ -48,9 +48,10 @@ const LIMITS = [
   'This is a small classical engine. It is far weaker than Stockfish and is not trying to compete with it.',
   'The steps between the four levels are steep: Casual won every game against Novice and Club won 23 of 24 against Casual.',
   'On the free hosted site the search is capped at depth 7 and 3 seconds, on a tenth of a processor, so Expert plays much like Club there.',
-  'Prolog’s rules read attacked squares, not legal moves, so a “trapped piece” or “pinned defender” is a strong hint, not a proof.',
   'The explanation benchmark is small: 66 positions, five of them crowded. Its scores will not hold across real middlegames.',
-  'Most tactical rules read lines of attack, not legal moves. A pin to an equal piece is checked against the legal moves; “trapped” and “pinned defender” are not.',
+  'Most tactical rules read lines of attack, not legal moves, and each fact says which it is. Three claims about moves are checked against the legal moves Lisp supplies, and only for the side to move: a pin to an equal piece, a trapped piece, and a discovered attack. Everything about the other side is geometric.',
+  'The newer search (reverse futility pruning, checks answered in quiescence, a deeper null-move reduction) was measured only against the engine’s own earlier self: 62.0% over 96 games. That says it probably beats the earlier version, not by how much, and nothing about other engines.',
+  'The 3D board shows the selected fact, the best move, check and coordinates. It does not show the standing analysis layers, and it cannot be played from the keyboard; the flat boards are the precise workbench.',
   'A move rating is what a depth-5 or depth-6 search prefers, and is worded that way. In the sample game Morphy’s winning sacrifice 10.Nxb5 is rated lower than a quiet move whenever the search is cut a ply short.',
   'A game review gives each search a quarter of a second. On a few positions that stops it early, so two reviews of the same game can rate those moves differently. Each rating states its depth.',
   'Prolog’s own ranking of moves, made without searching, matches the search about half the time. Where they differed on the first 39 positions the search’s move was the labelled one 6 times of 6 and Prolog’s once.',
@@ -76,7 +77,7 @@ export function Benchmarks({ onClose }: { onClose: () => void }) {
           </button>
         </header>
         <p className="quiet">
-          What was measured, how, and what it showed, including what did not go the project’s way. The first five
+          What was measured, how, and what it showed, including what did not go the project’s way. The first six
           tables are read from files the measuring scripts wrote; under each is the run it came from and the command
           that repeats it.
         </p>

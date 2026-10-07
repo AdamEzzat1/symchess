@@ -1,6 +1,7 @@
 ;;;; search.lisp -- iterative deepening with aspiration windows,
-;;;; principal-variation alpha-beta with late move reductions, quiescence,
-;;;; static exchange evaluation, transposition table, move ordering, time control.
+;;;; principal-variation alpha-beta with null-move pruning, reverse futility
+;;;; pruning and late move reductions, quiescence that answers checks, static
+;;;; exchange evaluation, transposition table, move ordering, time control.
 ;;;;
 ;;;; Nothing in this file calls Prolog. Symbolic knowledge can enter only as
 ;;;; ROOT-HINTS: a move -> bonus table computed once before the search starts
@@ -281,28 +282,36 @@ ends up winning (negative: losing) once every profitable recapture is made."
   "Search captures until the position is quiet, so static eval is not taken
 in the middle of an exchange. Captures that lose material are not tried, nor
 are captures that could not lift the score to alpha even if they won the
-piece for free. Simplification: checks are not extended here."
+piece for free.
+
+A side in check cannot stand pat: it has to answer the check, and may have no
+answer. So in check every move is tried, and none of them is mate. (Checks
+themselves are not generated here, so this arises only when a capture gives
+check, which bounds it.)"
   (declare (type pos p) (type sctx ctx) (type fixnum alpha beta sp))
   (incf (sctx-nodes ctx))
   (check-limits ctx)
   (setf (aref (sctx-pv-len ctx) sp) 0)
   (when (sctx-abort ctx) (return-from quiesce 0))
-  (let ((stand (evaluate p)))
-    (declare (type fixnum stand))
-    (when (>= sp (- +max-search-ply+ 2)) (return-from quiesce stand))
+  (when (>= sp (- +max-search-ply+ 2)) (return-from quiesce (evaluate p)))
+  (let* ((in-check (and **use-qchecks** (in-check-p p)))
+         (stand (if in-check (- +inf+) (evaluate p)))
+         (legal 0))
+    (declare (type fixnum stand legal))
     (when (>= stand beta) (return-from quiesce stand))
     (when (> stand alpha) (setf alpha stand))
     (let* ((moves (svref (sctx-move-lists ctx) sp))
            (scores (svref (sctx-score-lists ctx) sp))
-           (n (generate-moves p moves t)))
+           (n (generate-moves p moves (not in-check))))
       (declare (type move-array moves scores) (type fixnum n))
       (score-moves p ctx moves scores n sp 0)
       (dotimes (i n)
         (pick-best moves scores i n)
         ;; Sorted, so the first losing capture means only losing ones remain.
-        (when (minusp (aref scores i)) (return))
+        (when (and (not in-check) (minusp (aref scores i))) (return))
         (let ((m (aref moves i)))
           (when (and (not (and **use-delta**
+                               (not in-check)
                                (move-capture-p m)
                                (zerop (move-promo m))
                                (< (+ stand 200
@@ -312,6 +321,7 @@ piece for free. Simplification: checks are not extended here."
                                                (abs (aref (pos-board p) (move-to m))))))
                                   alpha)))
                      (make-move p m))
+            (incf legal)
             (let ((score (- (the fixnum (quiesce p ctx (- beta) (- alpha) (1+ sp))))))
               (declare (type fixnum score))
               (unmake-move p)
@@ -319,7 +329,9 @@ piece for free. Simplification: checks are not extended here."
               (when (> score alpha)
                 (setf alpha score)
                 (when (>= alpha beta) (return-from quiesce alpha)))))))
-      alpha)))
+      (if (and in-check (zerop legal))
+          (+ (- +mate+) sp)
+          alpha))))
 
 ;;; --------------------------------------------------------------- negamax
 
@@ -350,15 +362,28 @@ piece for free. Simplification: checks are not extended here."
           (cond ((= tt-flag +tt-exact+) (return-from negamax s))
                 ((and (= tt-flag +tt-lower+) (>= s beta)) (return-from negamax s))
                 ((and (= tt-flag +tt-upper+) (<= s alpha)) (return-from negamax s)))))
-      ;; Null-move pruning: if passing still fails high, this node is too good.
-      (when (and allow-null (not pv-node) (not in-check) (>= depth 3) (plusp sp)
-                 (has-non-pawn-material-p p (pos-side p))
-                 (>= (the fixnum (evaluate p)) beta))
-        (make-null-move p)
-        (let ((s (- (the fixnum (negamax p ctx (- depth 3) (- beta) (- 1 beta) (1+ sp) nil)))))
-          (unmake-null-move p)
-          (when (sctx-abort ctx) (return-from negamax 0))
-          (when (and (>= s beta) (< s +mate-bound+)) (return-from negamax beta))))
+      (let ((static (if (or pv-node in-check (zerop sp)) 0 (evaluate p))))
+        (declare (type fixnum static))
+        ;; Reverse futility: a few plies from the horizon, a position that
+        ;; already stands well above beta will not come back below it. Trust
+        ;; the evaluation and stop. Never on the main line, in check, or
+        ;; where a mate is being proved.
+        (when (and **use-futility** (not pv-node) (not in-check) (plusp sp) (<= depth 3)
+                   (< (abs beta) +mate-bound+)
+                   (>= (- static (* 100 depth)) beta))
+          (return-from negamax static))
+        ;; Null-move pruning: if passing still fails high, this node is too good.
+        (when (and allow-null (not pv-node) (not in-check) (>= depth 3) (plusp sp)
+                   (>= static beta)
+                   (has-non-pawn-material-p p (pos-side p)))
+          (make-null-move p)
+          (let ((s (- (the fixnum (negamax p ctx
+                                           ;; reduce by 2, or by 3 where there is depth to spare
+                                           (- depth (if (and **use-nullr** (>= depth 6)) 4 3))
+                                           (- beta) (- 1 beta) (1+ sp) nil)))))
+            (unmake-null-move p)
+            (when (sctx-abort ctx) (return-from negamax 0))
+            (when (and (>= s beta) (< s +mate-bound+)) (return-from negamax beta)))))
       (let* ((moves (svref (sctx-move-lists ctx) sp))
              (scores (svref (sctx-score-lists ctx) sp))
              (n (generate-moves p moves))

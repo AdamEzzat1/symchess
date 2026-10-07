@@ -114,6 +114,12 @@ export interface Fact {
   viz: Viz[];
   /** "explanation" or "mirrors_eval": what the engine actually uses this fact for. */
   use: string;
+  /**
+   * How far Prolog checked it: "geometric" (read from the lines of attack) or
+   * "legal_moves" (a claim about moves that survived a check against the legal
+   * moves Lisp supplied).
+   */
+  checked?: string;
 }
 
 export interface Plan {

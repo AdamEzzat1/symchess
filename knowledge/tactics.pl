@@ -19,8 +19,14 @@
     "where could this piece go" below means "which squares does it attack",
     so lines opened by the move itself are not accounted for. One piece of
     legality is modelled, because leaving it out produced false reports: a
-    piece pinned to its own king cannot capture off the pin line, so it does
-    not make an enemy piece "hanging" (see can_capture/5).
+    piece pinned to its own king cannot capture off the pin line. So it does
+    not attack an enemy piece in any sense that matters (it does not make it
+    "hanging" or "threatened") and it does not defend a friend (see
+    can_capture/5 and defended/3).
+
+    Where a conclusion is really about moves (a piece is trapped, a line can
+    be opened), analysis.pl checks it against the legal moves Lisp supplies
+    and drops it if they show it to be false. The rules here stay geometric.
 */
 
 :- module(tactics,
@@ -37,6 +43,7 @@
             trapped/2,
             is_hanging/4,
             is_threatened/4,
+            defended/3,
             safe_piece/4
           ]).
 
@@ -139,10 +146,15 @@ pinned_away_from(Ctx, From, Sq) :-
     pin(Ctx, pin(absolute, _, _, PSq, _, From, _, _)),
     \+ collinear(PSq, From, Sq).
 
+%!  defended(+Ctx, +Color, +Sq) is semidet.
+%   Some piece of Color could recapture on Sq. A piece pinned to its king off
+%   the line to Sq could not, so it does not count.
+defended(Ctx, C, Sq) :- can_capture(Ctx, C, _, _, Sq), !.
+
 is_hanging(Ctx, C, T, Sq) :-
     T \== king,
     opponent(C, O),
-    \+ attacked_by(Ctx, C, Sq),
+    \+ defended(Ctx, C, Sq),
     once(can_capture(Ctx, O, _, _, Sq)).
 
 %   A piece that nothing defends and that an enemy piece is able to take.
@@ -159,14 +171,14 @@ threatened_by(Ctx, C, T, Sq, AT, ASq) :-
     T \== king,
     opponent(C, O),
     value(T, V),
-    attack(Ctx, O, AT, ASq, Sq),
+    can_capture(Ctx, O, AT, ASq, Sq),
     value(AT, VA),
     VA < V.
 
 %   A defended piece attacked by something cheaper than itself.
 threatened(Ctx, threatened(C, T, Sq, AT, ASq)) :-
     piece(Ctx, C, T, Sq),
-    attacked_by(Ctx, C, Sq),             % defended (otherwise it is "hanging")
+    defended(Ctx, C, Sq),                % (otherwise it is "hanging")
     once(threatened_by(Ctx, C, T, Sq, AT, ASq)).
 
 %   A piece that is the only defender of two or more attacked friends.
@@ -255,7 +267,7 @@ trapped(Ctx, trapped(C, T, Sq, AT, ASq)) :-
     (   threatened_by(Ctx, C, T, Sq, AT, ASq)
     ->  true
     ;   is_hanging(Ctx, C, T, Sq),
-        once(attack(Ctx, O, AT, ASq, Sq))
+        once(can_capture(Ctx, O, AT, ASq, Sq))
     ),
     \+ ( attack(Ctx, C, T, Sq, To),
          \+ at(Ctx, To, C, _),

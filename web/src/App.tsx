@@ -40,7 +40,7 @@ type PieceStyle = 'classic' | 'figures' | '3d';
 const PIECE_STYLES: { id: PieceStyle; label: string; hint: string }[] = [
   { id: 'classic', label: 'Classic', hint: 'Glass chess pieces on a flat board' },
   { id: 'figures', label: 'Figures', hint: 'Glass statues of soldiers, clerics and royals on a flat board' },
-  { id: '3d', label: '3D', hint: 'A 3D board whose statues fight when one takes another' },
+  { id: '3d', label: '3D', hint: 'A 3D view of the same position: statues that fight, and the selected fact shown on the board. The flat boards are the precise workbench.' },
 ];
 const STYLE_KEY = 'symchess.pieces';
 
@@ -338,6 +338,11 @@ export function App() {
     [shownState, overlayMode, layers, display.attackArrows, display.subtleArrows],
   );
   const focus = useMemo(() => selectFocus(shownState, active, overlayMode), [shownState, active, overlayMode]);
+  // What the 3D board's Focus camera frames: the selected item only, so the camera does not chase the pointer.
+  const frameSquares = useMemo(
+    () => selectFocus(shownState, selected, overlayMode)?.squares ?? [],
+    [shownState, selected, overlayMode],
+  );
   const counts = useMemo(() => layerCounts(shownState), [shownState]);
   // The search's own best move, for the 3D board, under the same switch as the flat board's arrow.
   const best = state.search?.info?.bestMove;
@@ -566,6 +571,9 @@ export function App() {
                   showHints={display.moveHints}
                   minimal={motion === 'minimal'}
                   bestMove={bestArrow}
+                  focus={focus?.viz ?? null}
+                  frameSquares={frameSquares}
+                  showCoords={display.coordinates}
                   onMove={(uci) => send({ type: 'make_move', uci, positionId: game.positionId })}
                   onSquareClick={
                     analysisMode && !browsing && !reviewing

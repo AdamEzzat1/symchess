@@ -379,3 +379,16 @@ The limits recorded in sections 8 to 11 and in `NEXT_STAGE.md` were gone through
 | expert against club | 24 | 20 | 3 | 1 | 89.6% |
 
 **Left open on purpose.** More labelled positions, an outside-engine match, and a sequential test for the single features. Each is explained in the register.
+
+## 13. After that: 3D reasoning, rule correctness, search
+
+The full account, with what was and was not measured, is the first section of `docs/LIMITATIONS.md`. In short:
+
+- **Search (engine 0.8.0).** Reverse futility pruning, checks answered in quiescence, a deeper null-move reduction. Depth 6 over the 19 positions takes 415,187 positions where 0.7.0 took 477,061. Against 0.7.0: 59.5 points from 96 games (62.0%). That is evidence it beats its earlier self, and nothing more than that.
+- **Rules.** A pinned piece neither attacks nor defends off its line; "trapped" and "discovered attack" are checked against Lisp's legal moves for the side to move; every fact says whether it is geometric or legal-move-checked.
+- **3D.** The selected fact is drawn on the 3D board and its pieces lit; coordinates; Play, Analyze and Focus cameras; carved statues.
+
+| Match | Time per move | Games | Won | Drawn | Lost | Points |
+| --- | --- | --- | --- | --- | --- | --- |
+| new against v07 | 100 ms | 48 | 23 | 10 | 15 | 58.3% |
+| new against v07 | 300 ms | 48 | 25 | 13 | 10 | 65.6% |

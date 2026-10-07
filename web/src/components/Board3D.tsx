@@ -7,8 +7,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { FILES } from '../geometry';
 import { activateSquare, targetsFrom } from '../moveInput';
-import type { Color, GameState, LegalMove, PieceCode, Square } from '../protocol';
+import type { Color, GameState, LegalMove, PieceCode, Square, Viz } from '../protocol';
 import { PromotionPicker } from './Board';
+import { styleSpec } from './Overlays';
 import { sculpture } from './statues';
 
 interface Props {
@@ -21,6 +22,14 @@ interface Props {
   minimal?: boolean;
   /** The search's best move, drawn as an arrow lying on the board. */
   bestMove?: { from: Square; to: Square } | null;
+  /**
+   * The drawing primitives of the fact or plan under inspection, exactly as
+   * the engine supplied them. The same selection the flat board isolates.
+   */
+  focus?: readonly Viz[] | null;
+  /** Squares the Focus camera frames: those of the selected fact or plan. */
+  frameSquares?: readonly Square[];
+  showCoords?: boolean;
   onMove: (uci: string) => void;
   onSquareClick?: (square: Square) => void;
 }
@@ -68,6 +77,14 @@ function pose(statue: THREE.Object3D, yaw: number, toward: THREE.Vector3, angle:
   statue.quaternion.setFromAxisAngle(axis, angle).multiply(new THREE.Quaternion().setFromAxisAngle(UP, yaw));
 }
 
+/** Play: the angled view. Analyze: from high up, so pieces hide little of the board. Focus: close on the selected fact. */
+export type CameraView = 'play' | 'analyze' | 'focus';
+const VIEWS: { id: CameraView; label: string; hint: string }[] = [
+  { id: 'play', label: 'Play', hint: 'The angled view' },
+  { id: 'analyze', label: 'Analyze', hint: 'From high up, so pieces hide little of the board' },
+  { id: 'focus', label: 'Focus', hint: 'Close on the selected fact or plan. Select one in the panel first.' },
+];
+
 interface Tween {
   start: number;
   duration: number;
@@ -81,6 +98,8 @@ interface StatueData {
   /** Resting heading: white faces up the board, black faces down it. */
   facing: number;
   lift: number;
+  /** How brightly it is lit as part of the fact under inspection, 0 to 1. */
+  shine: number;
   /** The weapon arm, hinged at the shoulder. */
   arm: THREE.Group;
   /** Shoulder angles for the wind-up and for the moment of the blow. */
@@ -133,7 +152,7 @@ function buildStatue(code: PieceCode): Statue {
 
   const facing = white ? 0 : Math.PI;
   group.rotation.y = facing;
-  group.userData = { code, material, facing, lift: 0, arm, windup: shape.windup, hit: shape.hit, rear: shape.rear };
+  group.userData = { code, material, facing, lift: 0, shine: 0, arm, windup: shape.windup, hit: shape.hit, rear: shape.rear };
   return group;
 }
 
@@ -147,6 +166,10 @@ function createWorld(canvas: HTMLCanvasElement) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(42, 4 / 3, 0.1, 100);
   const cameraHome = new THREE.Vector3();
+  const cameraLook = new THREE.Vector3();
+  let view: CameraView = 'play';
+  let framed: readonly Square[] = [];
+  let side = 1;
   let shake = 0;
 
   scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x10151c, 1.15));
@@ -163,7 +186,7 @@ function createWorld(canvas: HTMLCanvasElement) {
 
   // The board: 64 slabs on a dark base.
   const base = new THREE.Mesh(
-    new THREE.BoxGeometry(8.5, 0.3, 8.5),
+    new THREE.BoxGeometry(8.7, 0.3, 8.7),
     new THREE.MeshStandardMaterial({ color: 0x0c131b, roughness: 0.7 }),
   );
   base.position.y = -0.17;
@@ -615,18 +638,13 @@ function createWorld(canvas: HTMLCanvasElement) {
   };
 
   /** Draw (or clear) the best-move arrow: a flat shape on the board from one square to another. */
-  const setBest = (move: { from: Square; to: Square } | null) => {
-    if (bestArrow) {
-      scene.remove(bestArrow);
-      bestArrow.geometry.dispose();
-      bestArrow = null;
-    }
-    if (!move) return;
-    const a = squarePosition(move.from);
-    const b = squarePosition(move.to);
+  /** A flat arrow lying on the board from the centre of one square toward another. */
+  const arrowMesh = (from: Square, to: Square, material: THREE.Material, y: number) => {
+    const a = squarePosition(from);
+    const b = squarePosition(to);
     const length = a.distanceTo(b);
-    if (length === 0) return;
-    // An arrow along +x in the shape's own plane, from the centre of one square to the next.
+    if (length === 0) return null;
+    // An arrow along +x in the shape's own plane.
     const start = 0.32;
     const neck = length - 0.42;
     const shape = new THREE.Shape();
@@ -638,12 +656,109 @@ function createWorld(canvas: HTMLCanvasElement) {
     shape.lineTo(neck, 0.07);
     shape.lineTo(start, 0.07);
     shape.closePath();
-    bestArrow = new THREE.Mesh(new THREE.ShapeGeometry(shape), bestMaterial);
+    const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
     // Lay it flat, then turn it within the board plane to point at the target.
-    bestArrow.rotation.set(-Math.PI / 2, 0, Math.atan2(-(b.z - a.z), b.x - a.x));
-    bestArrow.position.copy(a).setY(0.014);
-    bestArrow.renderOrder = 2;
-    scene.add(bestArrow);
+    mesh.rotation.set(-Math.PI / 2, 0, Math.atan2(-(b.z - a.z), b.x - a.x));
+    mesh.position.copy(a).setY(y);
+    mesh.renderOrder = 2;
+    return mesh;
+  };
+
+  const setBest = (move: { from: Square; to: Square } | null) => {
+    if (bestArrow) {
+      scene.remove(bestArrow);
+      bestArrow.geometry.dispose();
+      bestArrow = null;
+    }
+    if (!move) return;
+    bestArrow = arrowMesh(move.from, move.to, bestMaterial, 0.014);
+    if (bestArrow) scene.add(bestArrow);
+  };
+
+  // The fact under inspection: its own primitives, laid on the board, and the
+  // statues it names lit up. Nothing here is worked out from the position;
+  // every arrow, ring, square and file is one the engine supplied.
+  const focusGroup = new THREE.Group();
+  scene.add(focusGroup);
+  let lit = new Set<Square>();
+  const setFocus = (viz: readonly Viz[]) => {
+    for (const child of [...focusGroup.children] as THREE.Mesh[]) {
+      focusGroup.remove(child);
+      child.geometry.dispose();
+      (child.material as THREE.Material).dispose();
+    }
+    lit = new Set();
+    const lay = (geometry: THREE.BufferGeometry, material: THREE.Material, at: THREE.Vector3, y: number) => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.copy(at).setY(y);
+      mesh.renderOrder = 3;
+      focusGroup.add(mesh);
+    };
+    for (const v of viz) {
+      const spec = styleSpec(v.style);
+      const paint = (opacity: number) =>
+        new THREE.MeshBasicMaterial({ color: spec.color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide });
+      if (v.type === 'arrow') {
+        lit.add(v.from).add(v.to);
+        const arrow = arrowMesh(v.from, v.to, paint(spec.dashed ? 0.6 : 0.9), 0.018);
+        if (arrow) focusGroup.add(arrow);
+        if (spec.beam) {
+          // A pin or skewer is a line through pieces: show it at their height too.
+          const a = squarePosition(v.from).setY(0.62);
+          const b = squarePosition(v.to).setY(0.62);
+          const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, a.distanceTo(b), 8), paint(0.55));
+          beam.position.copy(a).add(b).multiplyScalar(0.5);
+          beam.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize());
+          focusGroup.add(beam);
+        }
+      } else if (v.type === 'ring') {
+        lit.add(v.square);
+        lay(new THREE.RingGeometry(0.4, 0.485, 40), paint(0.95), squarePosition(v.square), 0.016);
+      } else if (v.type === 'square') {
+        lay(new THREE.PlaneGeometry(0.96, 0.96), paint(0.34), squarePosition(v.square), 0.012);
+      } else {
+        const x = v.file.charCodeAt(0) - 97 - 3.5;
+        lay(new THREE.PlaneGeometry(0.96, 7.96), paint(0.16), new THREE.Vector3(x, 0, 0), 0.01);
+      }
+    }
+  };
+
+  // File letters and rank numbers on the rim, along the near and left edges.
+  const labels = new THREE.Group();
+  labels.visible = false;
+  scene.add(labels);
+  const label = (text: string) => {
+    const size = 64;
+    const paper = document.createElement('canvas');
+    paper.width = paper.height = size;
+    const pen = paper.getContext('2d');
+    if (pen) {
+      pen.font = '600 46px Georgia, serif';
+      pen.textAlign = 'center';
+      pen.textBaseline = 'middle';
+      pen.fillStyle = '#b4c2d0';
+      pen.fillText(text, size / 2, size / 2 + 3);
+    }
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.3, 0.3),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(paper), transparent: true, opacity: 0.7, depthWrite: false }),
+    );
+    labels.add(mesh);
+    return mesh;
+  };
+  const fileLabels = [...FILES].map(label);
+  const rankLabels = ['1', '2', '3', '4', '5', '6', '7', '8'].map(label);
+  const layLabels = () => {
+    const spin = side === 1 ? 0 : Math.PI;
+    fileLabels.forEach((mesh, i) => {
+      mesh.position.set(i - 3.5, -0.012, 4.175 * side);
+      mesh.rotation.set(-Math.PI / 2, 0, spin);
+    });
+    rankLabels.forEach((mesh, i) => {
+      mesh.position.set(-4.175 * side, -0.012, 3.5 - i);
+      mesh.rotation.set(-Math.PI / 2, 0, spin);
+    });
   };
 
   const select = (square: Square | null, targets: readonly LegalMove[], showHints: boolean) => {
@@ -665,24 +780,65 @@ function createWorld(canvas: HTMLCanvasElement) {
     }
   };
 
-  const setCamera = (orientation: Color, width: number, height: number) => {
-    const side = orientation === 'white' ? 1 : -1;
-    camera.aspect = width / height;
+  /** Put the camera where the chosen view wants it, gliding there unless motion is reduced. */
+  const moveCamera = (glide: boolean) => {
     // Pull back on narrow frames so the whole board stays in view.
     const distance = Math.max(1, 4 / 3 / camera.aspect);
-    cameraHome.set(0, 6.2 * distance, 10.0 * side * distance);
-    camera.position.copy(cameraHome);
-    camera.lookAt(0, -0.2, 0.75 * side);
+    const to = new THREE.Vector3();
+    const look = new THREE.Vector3();
     if (CLOSEUP) {
       // Stand on the board and look at white's back rank, from in front of it or behind.
-      cameraHome.set(-1, 1.6, CLOSEUP === 'front' ? -1.6 : 8.6);
-      camera.position.copy(cameraHome);
-      camera.lookAt(-1, 0.55, 3.5);
+      to.set(-1, 1.6, CLOSEUP === 'front' ? -1.6 : 8.6);
+      look.set(-1, 0.55, 3.5);
+    } else if (view === 'focus' && framed.length > 0) {
+      const points = framed.map(squarePosition);
+      const centre = points.reduce((sum, p) => sum.add(p), new THREE.Vector3()).multiplyScalar(1 / points.length);
+      const reach = Math.max(...points.map((p) => p.distanceTo(centre)));
+      look.copy(centre).setY(0.3);
+      to.set(centre.x, (2.7 + 1.5 * reach) * distance, centre.z + (3.7 + 1.9 * reach) * side * distance);
+    } else if (view === 'play') {
+      to.set(0, 6.2 * distance, 10 * side * distance);
+      look.set(0, -0.2, 0.75 * side);
+    } else {
+      to.set(0, 10.4 * distance, 6.3 * side * distance);
+      look.set(0, 0, 0.45 * side);
     }
+    if (!glide || calm || minimal) {
+      cameraHome.copy(to);
+      cameraLook.copy(look);
+      camera.position.copy(to);
+      camera.lookAt(look);
+      return;
+    }
+    const from = cameraHome.clone();
+    const fromLook = cameraLook.clone();
+    tween(420, (k) => {
+      const e = ease(k);
+      cameraHome.lerpVectors(from, to, e);
+      cameraLook.lerpVectors(fromLook, look, e);
+      camera.position.copy(cameraHome);
+      camera.lookAt(cameraLook);
+    });
+  };
+
+  const setCamera = (orientation: Color, width: number, height: number) => {
+    side = orientation === 'white' ? 1 : -1;
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
     key.position.set(-5 * side, 10, 6 * side);
     rim.position.set(5 * side, 5, -7 * side);
+    layLabels();
+    moveCamera(false);
+  };
+  const setView = (next: CameraView) => {
+    if (next === view) return;
+    view = next;
+    moveCamera(true);
+  };
+  const setFrame = (squares: readonly Square[]) => {
+    framed = squares;
+    if (view === 'focus') moveCamera(true);
   };
 
   const raycaster = new THREE.Raycaster();
@@ -722,8 +878,9 @@ function createWorld(canvas: HTMLCanvasElement) {
         statue.position.y = data.lift * 0.16;
         // Awake, it half-raises its weapon, ready.
         data.arm.rotation.x = Math.sign(data.hit) * 0.35 * data.lift;
+        data.shine += ((lit.has(square) ? 1 : 0) - data.shine) * 0.2;
         const rest = data.code[0] === 'w' ? ICE.rest : AMETHYST.rest;
-        data.material.emissiveIntensity = rest + data.lift * (0.5 + 0.12 * Math.sin(now / 180));
+        data.material.emissiveIntensity = rest + data.lift * (0.5 + 0.12 * Math.sin(now / 180)) + data.shine * 0.6;
       }
     }
     // The jolt of a blow: a quick, dying tremor.
@@ -756,6 +913,12 @@ function createWorld(canvas: HTMLCanvasElement) {
     setCamera: waking(setCamera),
     squareUnder,
     setBest: waking(setBest),
+    setFocus: waking(setFocus),
+    setView: waking(setView),
+    setFrame: waking(setFrame),
+    setCoords: waking((value: boolean) => {
+      labels.visible = value;
+    }),
     setCalm: waking((value: boolean) => {
       calm = value;
     }),
@@ -779,6 +942,9 @@ export default function Board3D({
   showHints,
   minimal = false,
   bestMove = null,
+  focus = null,
+  frameSquares,
+  showCoords = false,
   onMove,
   onSquareClick,
 }: Props) {
@@ -788,6 +954,8 @@ export default function Board3D({
   const [selected, setSelected] = useState<Square | null>(null);
   const [promotion, setPromotion] = useState<LegalMove[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [view, setView] = useState<CameraView>('play');
+  const canFocus = (frameSquares?.length ?? 0) > 0;
 
   const legal = useMemo(() => (interactive ? game.legalMoves : []), [game.legalMoves, interactive]);
   const targets = useMemo(() => targetsFrom(legal, selected), [legal, selected]);
@@ -838,6 +1006,19 @@ export default function Board3D({
     world.current?.select(selected, targets, showHints);
   }, [selected, targets, showHints]);
 
+  useEffect(() => {
+    world.current?.setFocus(focus ?? []);
+  }, [focus, failed]);
+  useEffect(() => {
+    world.current?.setFrame(frameSquares ?? []);
+  }, [frameSquares, failed]);
+  useEffect(() => {
+    world.current?.setView(view);
+  }, [view, failed]);
+  useEffect(() => {
+    world.current?.setCoords(showCoords);
+  }, [showCoords, failed]);
+
   const press = (clientX: number, clientY: number) => {
     const square = world.current?.squareUnder(clientX, clientY);
     if (!square || promotion) return;
@@ -878,6 +1059,21 @@ export default function Board3D({
           aria-label={`Chess board in 3D, ${game.turn} to move. Use Classic or Figures for keyboard play.`}
           onClick={(event) => press(event.clientX, event.clientY)}
         />
+      </div>
+      <div className="board-3d-views" role="group" aria-label="Camera">
+        {VIEWS.map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            className={`btn-toggle${view === v.id ? ' btn-toggle-on' : ''}`}
+            aria-pressed={view === v.id}
+            title={v.hint}
+            disabled={v.id === 'focus' && !canFocus && view !== 'focus'}
+            onClick={() => setView(v.id)}
+          >
+            {v.label}
+          </button>
+        ))}
       </div>
       {promotion && (
         <PromotionPicker

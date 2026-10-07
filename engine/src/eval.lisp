@@ -101,14 +101,21 @@
 (sb-ext:define-load-time-global **use-lmr** t)       ; late move reductions
 (sb-ext:define-load-time-global **use-aspiration** t) ; aspiration windows at the root
 (sb-ext:define-load-time-global **use-delta** t)     ; delta pruning in quiescence
+(sb-ext:define-load-time-global **use-futility** t)  ; give up on shallow nodes that are far ahead
+(sb-ext:define-load-time-global **use-qchecks** t)   ; answer checks properly in quiescence
+(sb-ext:define-load-time-global **use-nullr** t)     ; a deeper null-move reduction at depth
 
-(defun set-engine-features (&key (activity t) (see t) (lmr t) (aspiration t) (delta t))
+(defun set-engine-features (&key (activity t) (see t) (lmr t) (aspiration t) (delta t)
+                                 (futility t) (qchecks t) (nullr t))
   "Switch the optional evaluation and search features. With no arguments, all on."
   (setf **eval-activity** activity
         **use-see** see
         **use-lmr** lmr
         **use-aspiration** aspiration
-        **use-delta** delta)
+        **use-delta** delta
+        **use-futility** futility
+        **use-qchecks** qchecks
+        **use-nullr** nullr)
   nil)
 
 ;;; ------------------------------------------------- activity and king shelter

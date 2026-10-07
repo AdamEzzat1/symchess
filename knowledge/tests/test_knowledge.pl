@@ -277,6 +277,33 @@ test(no_pin_of_a_pawn_to_a_pawn) :-
     ctx("6k1/b7/8/8/3P4/8/5P2/7K w - - 0 1", Ctx),
     \+ pin(Ctx, pin(_, black, _, _, pawn, _, _, _)).
 
+test(a_pawn_pinned_to_its_king_does_not_threaten_what_it_cannot_take) :-
+    % the c5 pawn attacks the queen's square but is pinned on the c-file by the rook
+    ctx("2k5/8/8/2p5/3Q4/4P3/8/2R1K3 w - - 0 1", Ctx),
+    \+ threatened(Ctx, _).
+
+test(the_same_pawn_unpinned_does_threaten_it, [nondet]) :-
+    ctx("2k5/8/8/2p5/3Q4/4P3/8/4K3 w - - 0 1", Ctx),
+    sq(d4, D4), sq(c5, C5),
+    threatened(Ctx, threatened(white, queen, D4, pawn, C5)).
+
+test(a_piece_whose_only_defender_is_pinned_to_the_king_is_hanging, [nondet]) :-
+    % the d2 knight cannot recapture on f3: it is pinned by the a5 bishop
+    ctx("4kr2/8/8/b7/8/5B2/3N4/4K3 b - - 0 1", Ctx),
+    sq(f3, F3),
+    hanging(Ctx, hanging(white, bishop, F3, _)).
+
+test(it_is_not_hanging_when_an_unpinned_piece_also_defends) :-
+    ctx("4kr2/8/8/b7/8/5B2/3N2P1/4K3 b - - 0 1", Ctx),
+    sq(f3, F3),
+    \+ hanging(Ctx, hanging(white, bishop, F3, _)).
+
+test(a_defender_pinned_along_the_line_it_defends_on_still_defends) :-
+    % the e2 rook is pinned on the e-file by the e8 rook, and guards e5 along that file
+    ctx("4r1k1/8/8/4N3/8/8/4R3/4K3 b - - 0 1", Ctx),
+    sq(e5, E5),
+    defended(Ctx, white, E5).
+
 :- end_tests(tactics).
 
 % ----------------------------------------------------------------- structure
@@ -606,6 +633,60 @@ test(a_pin_to_a_more_valuable_piece_is_never_dropped_this_way, [nondet]) :-
     fen_pos("r1bqkb1r/ppp1nppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1", After),
     analyze(Pos, [m(g8e7, After)], Reply),
     has_pin(Reply).
+
+%   Claims about moves, checked against the moves Lisp supplies.
+has_kind(Reply, Kind) :- member(F, Reply.facts), get_dict(kind, F, Kind), !.
+checked_as(Reply, Kind, Basis) :- member(F, Reply.facts), get_dict(kind, F, Kind), get_dict(checked, F, Basis), !.
+
+test(a_piece_is_not_trapped_when_a_supplied_move_takes_it_to_safety, [nondet]) :-
+    % by the lines, every square of the a2 rook is covered by the a8 rook and
+    % none is guarded; once it steps up, the a1 rook behind it guards it
+    fen_pos("rk6/8/8/8/8/1pp5/Rp6/R3K3 w - - 0 1", Pos),
+    build_ctx(Pos, Ctx),
+    sq(a2, A2),
+    trapped(Ctx, trapped(white, rook, A2, _, _)),          % the geometric reading
+    fen_pos("rk6/8/8/8/R7/1pp5/1p6/R3K3 b - - 0 1", AfterRa4),
+    analyze(Pos, [m(a2a4, AfterRa4)], Reply),
+    \+ has_kind(Reply, trapped).
+
+test(it_stays_trapped_when_no_supplied_move_is_safe) :-
+    fen_pos("N7/pk6/8/8/8/8/8/4K3 w - - 0 1", Pos),
+    fen_pos("8/pk6/1N6/8/8/8/8/4K3 b - - 0 1", AfterNb6),
+    fen_pos("8/pkN5/8/8/8/8/8/4K3 b - - 0 1", AfterNc7),
+    analyze(Pos, [m(a8b6, AfterNb6), m(a8c7, AfterNc7)], Reply),
+    checked_as(Reply, trapped, legal_moves).
+
+test(a_trapped_piece_of_the_side_not_to_move_is_only_geometric) :-
+    fen_pos("N7/pk6/8/8/8/8/8/4K3 b - - 0 1", Pos),
+    fen_pos("N7/p1k5/8/8/8/8/8/4K3 w - - 0 1", AfterKc7),
+    analyze(Pos, [m(b7c7, AfterKc7)], Reply),
+    checked_as(Reply, trapped, geometric).
+
+test(no_discovered_attack_when_the_masking_piece_has_no_legal_move_off_the_line, [nondet]) :-
+    % the e4 knight masks the e1 rook, but it is pinned to the h1 king by the b7 bishop
+    fen_pos("4k3/1b2q3/8/8/4N3/8/8/R3R2K w - - 0 1", Pos),
+    build_ctx(Pos, Ctx),
+    discovered_attack(Ctx, _),                              % the geometric reading
+    fen_pos("4k3/1b2q3/8/8/4N3/8/8/R3R1K1 b - - 0 1", AfterKg1),
+    analyze(Pos, [m(h1g1, AfterKg1)], Reply),
+    \+ has_kind(Reply, discovered_attack).
+
+test(a_discovered_attack_is_kept_when_a_supplied_move_opens_the_line) :-
+    fen_pos("4k3/4q3/8/8/4N3/8/8/4RK2 w - - 0 1", Pos),
+    fen_pos("4k3/4q3/8/2N5/8/8/8/4RK2 b - - 0 1", AfterNc5),
+    analyze(Pos, [m(e4c5, AfterNc5)], Reply),
+    checked_as(Reply, discovered_attack, legal_moves).
+
+test(a_discovered_attack_is_kept_unchecked_when_no_moves_are_supplied) :-
+    fen_pos("4k3/4q3/8/8/4N3/8/8/4RK2 w - - 0 1", Pos),
+    analyze(Pos, [], Reply),
+    checked_as(Reply, discovered_attack, geometric).
+
+test(every_fact_says_how_it_was_checked, [nondet]) :-
+    fen_pos("r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1", Pos),
+    analyze(Pos, [], Reply),
+    Reply.facts \== [],
+    forall(member(F, Reply.facts), ( get_dict(checked, F, B), memberchk(B, [geometric, legal_moves]) )).
 
 :- end_tests(analysis).
 

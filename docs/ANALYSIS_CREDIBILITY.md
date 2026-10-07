@@ -161,7 +161,8 @@ With Prolog unavailable the benchmark still runs. It reports that motif and expl
 - A pin against an undefended piece of equal value (the held-out miss).
 - Defenders that are themselves pinned are reported by the separate "pinned defender" fact, but the "hanging" rule does not use it.
 - The exchange count in the Lisp engine treats a pinned defender as a real defender. This is pinned down by a test so it cannot change unnoticed.
-- "Trapped" still judges by attacked squares, not legal moves.
+- "Trapped" is judged by attacked squares and then, for the side to move, checked against the legal moves Lisp supplies; a discovered attack likewise. For the other side both are still geometric. Each fact says how it was checked.
+- A piece pinned to its king is no longer counted as attacking or defending off its line. That made one more fact true in the development set (the knight on d5 in `hanging-defender-is-pinned`), and the label was corrected to include it.
 - Nothing here measures whether the *plans* Prolog suggests are good.
 
 ## Why this matters for the project

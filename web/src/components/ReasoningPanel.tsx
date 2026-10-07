@@ -62,6 +62,12 @@ const USE_LABEL: Record<string, string> = {
   mirrors_eval: 'Explanation (the evaluator scores this separately)',
 };
 
+/** How far Prolog itself checked a fact, before the search has any say. */
+const CHECKED_HELP: Record<string, string> = {
+  geometric: 'Geometric: read from the lines of attack on the board. Not checked against legal moves.',
+  legal_moves: 'Legal-move-checked: a claim about what can be played, kept only because the legal moves Lisp supplied do not contradict it.',
+};
+
 const STATUS_HELP: Record<string, string> = {
   measured: 'A number the search or evaluator actually produced.',
   confirmed: 'A Prolog motif that the search line acts on.',
@@ -237,6 +243,12 @@ export function ReasoningPanel({
                 : `Advice only · rests on ${activePlan!.because.map((b) => b.toUpperCase()).join(', ')}`}
             </dd>
           </div>
+          {activeFact?.checked && (
+            <div>
+              <dt>Checked</dt>
+              <dd>{CHECKED_HELP[activeFact.checked] ?? activeFact.checked}</dd>
+            </div>
+          )}
           <div>
             <dt>Status</dt>
             <dd>{STATUS_HELP[activeStatus]}</dd>

@@ -1,15 +1,15 @@
 {
   "run": {
-    "date": "2026-10-07 17:38 UTC",
+    "date": "2026-10-07 22:53 UTC",
     "command": "sbcl --script engine/tests/experiment.lisp ladder 1000",
-    "engine": "symchess 0.7.0",
+    "engine": "symchess 0.8.0",
     "lisp": "SBCL 2.6.9",
     "prolog": "SWI-Prolog 10.0.2",
     "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
     "processors": 8,
-    "note": "the self-play matches were running on another core",
-    "sourceDigest": "69a2989a53a7c2260bd778cfa9f7a02b",
-    "commit": "08dcf22",
+    "note": "Run alongside two other measuring runs on the same machine.",
+    "sourceDigest": "6fdb40c9d7c20306e9722f77538e2952",
+    "commit": "d6ac113",
     "uncommittedChanges": true
   },
   "configurations": [
@@ -58,9 +58,9 @@
       "msPerMove": 1000,
       "games": 24,
       "wins": 23,
-      "draws": 0,
-      "losses": 1,
-      "points": 95.833
+      "draws": 1,
+      "losses": 0,
+      "points": 97.917
     },
     {
       "candidate": "club",
@@ -77,10 +77,10 @@
       "baseline": "club",
       "msPerMove": 1000,
       "games": 24,
-      "wins": 20,
-      "draws": 3,
-      "losses": 1,
-      "points": 89.583
+      "wins": 23,
+      "draws": 1,
+      "losses": 0,
+      "points": 97.917
     }
   ]
 }

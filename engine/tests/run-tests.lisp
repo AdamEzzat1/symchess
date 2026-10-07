@@ -696,10 +696,54 @@
 (section "experiments")
 (check "a configuration name stands for exact switches"
        (list (features-for "old") (features-for "lmr") (features-for "no-see") (features-for "new"))
-       '((:activity nil :see nil :lmr nil :aspiration nil :delta nil)
-         (:activity nil :see nil :lmr t :aspiration nil :delta nil)
-         (:activity t :see nil :lmr t :aspiration t :delta t)
-         (:activity t :see t :lmr t :aspiration t :delta t)))
+       '((:activity nil :see nil :lmr nil :aspiration nil :delta nil :futility nil :qchecks nil :nullr nil)
+         (:activity nil :see nil :lmr t :aspiration nil :delta nil :futility nil :qchecks nil :nullr nil)
+         (:activity t :see nil :lmr t :aspiration t :delta t :futility t :qchecks t :nullr t)
+         (:activity t :see t :lmr t :aspiration t :delta t :futility t :qchecks t :nullr t)))
+(check "the 0.7 engine can be reproduced: its five features, none of the later three"
+       (features-for "v07")
+       '(:activity t :see t :lmr t :aspiration t :delta t :futility nil :qchecks nil :nullr nil))
+
+(section "search changes since 0.7")
+(flet ((quiet-score (fen)
+         (quiesce (pos-from-fen fen) (make-sctx) (- +inf+) +inf+ 1))
+       (nodes-at (configuration fen depth)
+         (configure configuration)
+         (tt-clear)
+         (prog1 (search-result-nodes (search-position (pos-from-fen fen) :max-depth depth))
+           (set-engine-features)))
+       (move-at (configuration fen depth)
+         (configure configuration)
+         (tt-clear)
+         (prog1 (move-uci (search-result-best-move (search-position (pos-from-fen fen) :max-depth depth)))
+           (set-engine-features))))
+  ;; Black is mated on h8. The quiescence search used to return the static
+  ;; score here, a queen down but "fine".
+  (check "a side that is mated cannot stand pat in quiescence"
+         (quiet-score "7k/6Q1/6K1/8/8/8/8/8 b - - 0 1")
+         (+ (- +mate+) 1))
+  (check "nor is a check with an answer scored as mate"
+         (> (quiet-score "7k/8/6K1/8/8/8/8/6Q1 b - - 0 1") (- +mate-bound+))
+         t)
+  (check "in check with one answer, quiescence plays it: the king takes the unguarded queen"
+         (> (quiet-score "7k/6Q1/8/8/8/8/8/K7 b - - 0 1") -200)
+         t)
+  (check "without the switch it stands pat as it used to"
+         (progn (set-engine-features :qchecks nil)
+                (prog1 (> (quiet-score "7k/6Q1/6K1/8/8/8/8/8 b - - 0 1") (- +mate-bound+))
+                  (set-engine-features)))
+         t)
+  (let ((kiwipete "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+        (italian "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"))
+    (check "reverse futility pruning searches fewer positions to the same depth"
+           (list (< (nodes-at "new" italian 6) (nodes-at "no-futility" italian 6))
+                 (< (nodes-at "new" kiwipete 6) (nodes-at "no-futility" kiwipete 6)))
+           '(t t))
+    ;; Rxd8 is mate on the back rank.
+    (check "the switches change the work, not the result: a back-rank mate is found either way"
+           (list (move-at "new" "3r2k1/5ppp/8/8/8/8/5PPP/3RR1K1 w - - 0 1" 5)
+                 (move-at "v07" "3r2k1/5ppp/8/8/8/8/5PPP/3RR1K1 w - - 0 1" 5))
+           '("d1d8" "d1d8"))))
 (check "an unknown configuration is an error, not a silent default"
        (handler-case (progn (features-for "turbo") :no-error) (error () :error))
        :error)

@@ -34,7 +34,14 @@ const CHROME =
 const enc = encodeURIComponent;
 const position = (fen, rest) => `${APP}/?fen=${enc(fen)}&${rest}`;
 
-/** name, address, a page expression that must become true, and what it shows. */
+const PINNED = 'r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4';
+const firstCard = `document.querySelector('.cards .card').click()`;
+const camera = (name) => `[...document.querySelectorAll('.board-3d-views button')].find((b) => b.innerText === '${name}').click()`;
+
+/**
+ * name, address, a page expression that must become true, what it shows, and
+ * (optionally) things to do on the page once it is ready, half a second apart.
+ */
 const VIEWS = [
   ['analysis', position('r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4', 'analyse=1&layers=all'),
     `document.querySelectorAll('.cards .card').length > 0 && /d6/.test(document.body.innerText)`,
@@ -51,9 +58,21 @@ const VIEWS = [
   ['results', `${APP}/?results=1`,
     `document.querySelectorAll('.sheet-run').length >= 5`,
     'the results page: recorded tables, each with the run it came from'],
-  ['board-3d', position('r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4', 'analyse=1&pieces=3d'),
-    `!!document.querySelector('canvas')`,
-    'the 3D board'],
+  ['board-3d', position(PINNED, 'analyse=1&pieces=3d'),
+    `!!document.querySelector('canvas') && document.querySelectorAll('.cards .card').length > 0`,
+    'the 3D board, Play camera, with the search’s best move as an arrow'],
+  ['board-3d-fact', position(PINNED, 'analyse=1&pieces=3d'),
+    `!!document.querySelector('canvas') && document.querySelectorAll('.cards .card').length > 0`,
+    'a selected fact on the 3D board: the pin’s line, the pinned knight ringed, the pieces it names lit',
+    [firstCard]],
+  ['board-3d-focus', position(PINNED, 'analyse=1&pieces=3d'),
+    `!!document.querySelector('canvas') && document.querySelectorAll('.cards .card').length > 0`,
+    'the Focus camera, close on the selected fact',
+    [firstCard, camera('Focus')]],
+  ['board-3d-analyze', position(PINNED, 'analyse=1&pieces=3d'),
+    `!!document.querySelector('canvas') && document.querySelectorAll('.cards .card').length > 0`,
+    'the Analyze camera: from high up, with the coordinates on the rim',
+    [camera('Analyze')]],
   ['statues', position('rnbqkp2/8/8/8/8/8/8/RNBQKP2 w - - 0 1', 'pieces=3d&closeup=front'),
     `!!document.querySelector('canvas')`,
     'the six 3D statues, close up'],
@@ -113,7 +132,7 @@ try {
 
   await call('Page.enable');
   mkdirSync(OUT, { recursive: true });
-  for (const [name, url, ready, shows] of VIEWS) {
+  for (const [name, url, ready, shows, steps = []] of VIEWS) {
     await call('Page.navigate', { url });
     let ok = false;
     for (let waited = 0; waited < 45_000 && !ok; waited += 500) {
@@ -125,7 +144,11 @@ try {
       console.error(`FAIL  ${name}: the page never showed ${shows}`);
       continue;
     }
-    await sleep(1200); // let arrows and pieces finish moving
+    for (const step of steps) {
+      await sleep(500);
+      await call('Runtime.evaluate', { expression: step });
+    }
+    await sleep(1200); // let arrows, pieces and the camera finish moving
     const shot = await call('Page.captureScreenshot', { format: 'png' });
     writeFileSync(join(OUT, `${name}.png`), Buffer.from(shot.result.data, 'base64'));
     console.log(`  ok    ${name}.png  ${shows}`);
