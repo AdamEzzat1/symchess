@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { allSquares, BOARD, CELL, FILES, isLightSquare, squareAt, squareOrigin, type Point } from '../geometry';
 import { activateSquare, resolveMove, targetsFrom } from '../moveInput';
-import type { Color, GameState, LegalMove, Square, Viz } from '../protocol';
+import type { Color, GameState, LegalMove, PieceCode, Square, Viz } from '../protocol';
 import type { Focus } from '../selectViz';
 import { Overlays } from './Overlays';
 import { PIECE_NAME, PieceIcon, PieceShape } from './Pieces';
@@ -34,16 +34,118 @@ interface Drag {
 const PIECE_SCALE = 1;
 const PIECE_INSET = (CELL * (1 - PIECE_SCALE)) / 2;
 
-function BoardPiece({ code, x, y, lifted }: { code: string; x: number; y: number; lifted?: boolean }) {
+interface Arrival {
+  /** Where the piece came from, relative to where it now stands. */
+  dx: number;
+  dy: number;
+  /** It took something: lunge at the end instead of gliding in. */
+  strike: boolean;
+}
+
+function BoardPiece({ code, x, y, lifted, arrive }: { code: string; x: number; y: number; lifted?: boolean; arrive?: Arrival }) {
   return (
     <g
       className={lifted ? 'board-piece board-piece-lifted' : 'board-piece'}
       transform={`translate(${x + PIECE_INSET} ${y + PIECE_INSET - 2}) scale(${PIECE_SCALE})`}
       pointerEvents="none"
     >
-      <PieceShape code={code} />
+      {arrive ? (
+        <g
+          className={arrive.strike ? 'piece-arrive piece-strike' : 'piece-arrive'}
+          style={{ '--fx': `${arrive.dx}px`, '--fy': `${arrive.dy}px` } as CSSProperties}
+        >
+          <PieceShape code={code} />
+        </g>
+      ) : (
+        <PieceShape code={code} />
+      )}
     </g>
   );
+}
+
+const SHARDS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+/** A taken piece, knocked away from its attacker and breaking up. Purely decorative. */
+function TakenPiece({ code, origin, from }: { code: PieceCode; origin: Point; from: Point }) {
+  const length = Math.hypot(origin.x - from.x, origin.y - from.y) || 1;
+  const ux = (origin.x - from.x) / length;
+  const uy = (origin.y - from.y) / length;
+  return (
+    <g className="piece-taken-layer" transform={`translate(${origin.x} ${origin.y - 2})`} pointerEvents="none" aria-hidden="true">
+      <g
+        className={`piece-taken ${code[0] === 'w' ? 'pc-white' : 'pc-black'}`}
+        style={{ '--kx': `${ux * 26}px`, '--ky': `${uy * 26}px`, '--tilt': `${ux >= 0 ? 55 : -55}deg` } as CSSProperties}
+      >
+        <PieceShape code={code} />
+      </g>
+      {/* The blow itself: a bright cut across the square, at right angles to the attack. */}
+      <path
+        className="piece-slash"
+        d={`M${50 - uy * 44 - ux * 12} ${52 + ux * 44 - uy * 12} Q${50 + ux * 16} ${52 + uy * 16} ${50 + uy * 44 - ux * 12} ${52 - ux * 44 - uy * 12}`}
+        pathLength={1}
+      />
+      <circle className="piece-impact" cx={50} cy={52} r={30} />
+      {SHARDS.map((i) => {
+        const angle = (i / SHARDS.length) * Math.PI * 2 + 0.3;
+        const reach = 44 + (i % 3) * 12;
+        return (
+          <line
+            key={i}
+            className={`piece-shard ${code[0] === 'w' ? 'piece-shard-white' : 'piece-shard-black'}`}
+            x1={50}
+            y1={55}
+            x2={50 + Math.cos(angle) * 9}
+            y2={55 + Math.sin(angle) * 9}
+            style={{ '--sx': `${Math.cos(angle) * reach + ux * 20}px`, '--sy': `${Math.sin(angle) * reach + uy * 20}px` } as CSSProperties}
+          />
+        );
+      })}
+    </g>
+  );
+}
+
+interface PromotionProps {
+  options: LegalMove[];
+  turn: Color;
+  onChoose: (uci: string) => void;
+  onCancel: () => void;
+}
+
+/** The promotion choices are the engine's own moves; this only shows them. */
+export function PromotionPicker({ options, turn, onChoose, onCancel }: PromotionProps) {
+  return (
+    <div className="promotion" role="dialog" aria-label="Choose promotion piece">
+      <span className="promotion-title">Promote to</span>
+      <div className="promotion-row">
+        {options.map((m) => {
+          const letter = (m.promotion ?? 'q').toUpperCase();
+          return (
+            <button
+              key={m.uci}
+              type="button"
+              className="promotion-choice"
+              aria-label={PIECE_NAME[letter]}
+              onClick={() => onChoose(m.uci)}
+            >
+              <PieceIcon code={`${turn === 'white' ? 'w' : 'b'}${letter}`} size={54} />
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="btn btn-quiet" onClick={onCancel}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+/** What just happened on the board, for animation only. */
+interface MoveFx {
+  positionId: number;
+  from: Square;
+  to: Square;
+  /** The piece that stood on `to` and was taken, if any. */
+  taken: PieceCode | null;
 }
 
 export function Board({
@@ -69,6 +171,31 @@ export function Board({
     setDrag(null);
     setPromotion(null);
   }, [game.positionId]);
+
+  // Remember the previous position so the last move can be animated: the
+  // mover slides in from where it stood, and a taken piece is shown breaking.
+  // This compares two boards the engine sent; it works out no chess.
+  const previous = useRef<{ positionId: number; board: Record<Square, PieceCode> } | null>(null);
+  const [fx, setFx] = useState<MoveFx | null>(null);
+  useEffect(() => {
+    const before = previous.current;
+    // The same position sent again (a clock or status update) changes nothing.
+    if (before && before.positionId === game.positionId) return;
+    previous.current = { positionId: game.positionId, board: game.board };
+    const move = game.lastMove;
+    const mover = before && move ? before.board[move.from] : undefined;
+    if (!before || !move || !mover || !game.board[move.to] || game.board[move.from]) {
+      setFx(null);
+      return;
+    }
+    const victim = before.board[move.to];
+    setFx({
+      positionId: game.positionId,
+      from: move.from,
+      to: move.to,
+      taken: victim && victim[0] !== mover[0] ? victim : null,
+    });
+  }, [game.positionId, game.board, game.lastMove]);
 
   // Legal moves come from the engine. Nothing here knows how a piece moves.
   const legal = useMemo(() => (interactive ? game.legalMoves : []), [game.legalMoves, interactive]);
@@ -239,8 +366,24 @@ export function Board({
           const code = game.board[square];
           if (!code || (drag?.moved && drag.from === square)) return null;
           const o = squareOrigin(square, orientation);
+          if (fx && fx.positionId === game.positionId && fx.to === square) {
+            const start = squareOrigin(fx.from, orientation);
+            return (
+              <BoardPiece
+                key={`p-${square}-${fx.positionId}`}
+                code={code}
+                x={o.x}
+                y={o.y}
+                arrive={{ dx: start.x - o.x, dy: start.y - o.y, strike: fx.taken !== null }}
+              />
+            );
+          }
           return <BoardPiece key={`p-${square}`} code={code} x={o.x} y={o.y} />;
         })}
+
+        {fx && fx.taken && fx.positionId === game.positionId && (
+          <TakenPiece key={`x-${fx.positionId}`} code={fx.taken} origin={squareOrigin(fx.to, orientation)} from={squareOrigin(fx.from, orientation)} />
+        )}
 
         {dimPath && <path className="board-dim" d={dimPath} fillRule="evenodd" pointerEvents="none" />}
         {inspecting && <Overlays viz={focus.viz} orientation={orientation} tone="focus" />}
@@ -270,31 +413,15 @@ export function Board({
       )}
 
       {promotion && (
-        <div className="promotion" role="dialog" aria-label="Choose promotion piece">
-          <span className="promotion-title">Promote to</span>
-          <div className="promotion-row">
-            {promotion.map((m) => {
-              const letter = (m.promotion ?? 'q').toUpperCase();
-              return (
-                <button
-                  key={m.uci}
-                  type="button"
-                  className="promotion-choice"
-                  aria-label={PIECE_NAME[letter]}
-                  onClick={() => {
-                    onMove(m.uci);
-                    setPromotion(null);
-                  }}
-                >
-                  <PieceIcon code={`${game.turn === 'white' ? 'w' : 'b'}${letter}`} size={54} />
-                </button>
-              );
-            })}
-          </div>
-          <button type="button" className="btn btn-quiet" onClick={() => setPromotion(null)}>
-            Cancel
-          </button>
-        </div>
+        <PromotionPicker
+          options={promotion}
+          turn={game.turn}
+          onChoose={(uci) => {
+            onMove(uci);
+            setPromotion(null);
+          }}
+          onCancel={() => setPromotion(null)}
+        />
       )}
     </div>
   );

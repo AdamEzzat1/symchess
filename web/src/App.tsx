@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Board } from './components/Board';
 import { Controls, DEFAULT_DISPLAY, DisplayRail, LayerRail, PlayerBar, type DisplayOptions } from './components/GamePanel';
-import { SvgDefs } from './components/Pieces';
+import { PieceArtContext, SvgDefs } from './components/Pieces';
 import { ReasoningPanel } from './components/ReasoningPanel';
 import { SearchTrace } from './components/SearchTrace';
 import type { Color, Mode } from './protocol';
@@ -14,9 +14,35 @@ import { useEngine } from './useEngine';
  *   &layers=all           switch every layer on
  *   &analyse=1            start a search straight away
  *   &select=f1            open the glass inspector on a fact or plan id
+ *   &move=e2e4            play one move (the engine still decides if it is legal)
  * It only sends ordinary commands the UI could send by hand.
  */
 const LINK = new URLSearchParams(window.location.search);
+
+// Three.js is only fetched if someone chooses the 3D board.
+const Board3D = lazy(() => import('./components/Board3D'));
+
+/** How the pieces are drawn. Presentation only: the engine never hears of it. */
+type PieceStyle = 'classic' | 'figures' | '3d';
+const PIECE_STYLES: { id: PieceStyle; label: string; hint: string }[] = [
+  { id: 'classic', label: 'Classic', hint: 'Glass chess pieces on a flat board' },
+  { id: 'figures', label: 'Figures', hint: 'Glass statues of soldiers, clerics and royals on a flat board' },
+  { id: '3d', label: '3D', hint: 'A 3D board whose statues fight when one takes another' },
+];
+const STYLE_KEY = 'symchess.pieces';
+
+function initialPieceStyle(): PieceStyle {
+  const known = (value: string | null): value is PieceStyle => PIECE_STYLES.some((s) => s.id === value);
+  const linked = LINK.get('pieces');
+  if (known(linked)) return linked;
+  try {
+    const saved = window.localStorage.getItem(STYLE_KEY);
+    if (known(saved)) return saved;
+  } catch {
+    // Storage can be blocked; the default is fine.
+  }
+  return 'classic';
+}
 
 export function App() {
   const { state, send, dismissError, reconnect, url } = useEngine();
@@ -28,6 +54,15 @@ export function App() {
     () => new Set(LINK.get('layers') === 'all' ? LAYERS.map((l) => l.id) : DEFAULT_LAYERS),
   );
   const [display, setDisplay] = useState<DisplayOptions>(DEFAULT_DISPLAY);
+  const [pieceStyle, setPieceStyle] = useState<PieceStyle>(initialPieceStyle);
+  const choosePieceStyle = (style: PieceStyle) => {
+    setPieceStyle(style);
+    try {
+      window.localStorage.setItem(STYLE_KEY, style);
+    } catch {
+      // Not remembered, but it still applies now.
+    }
+  };
   const [hovered, setHovered] = useState<Highlight>(null);
   const [selected, setSelected] = useState<Highlight>(null);
 
@@ -60,6 +95,8 @@ export function App() {
       if (LINK.get('analyse') === '1') send({ type: 'request_analysis', positionId });
       const pick = LINK.get('select');
       if (pick) setSelected({ kind: pick.startsWith('p') ? 'plan' : 'fact', id: pick });
+      const move = LINK.get('move');
+      if (move) send({ type: 'make_move', uci: move, positionId });
     }
   }, [connection, linkFen, positionId, symbolicReady, game?.fen, send]);
 
@@ -104,6 +141,7 @@ export function App() {
             : 'Engine offline · retrying';
 
   return (
+    <PieceArtContext.Provider value={pieceStyle === 'figures' ? 'figures' : 'classic'}>
     <div className="app">
       <SvgDefs />
 
@@ -134,6 +172,25 @@ export function App() {
         </header>
 
         {game && analysisMode && <LayerRail enabled={layers} counts={counts} onToggle={toggleLayer} />}
+        {game && (
+          <section className="rail-section" aria-label="Piece style">
+            <h2 className="rail-title">Pieces</h2>
+            <div className="mode-switch mode-switch-3" role="group" aria-label="Piece style">
+              {PIECE_STYLES.map((style) => (
+                <button
+                  key={style.id}
+                  type="button"
+                  className={`btn-toggle${pieceStyle === style.id ? ' btn-toggle-on' : ''}`}
+                  aria-pressed={pieceStyle === style.id}
+                  title={style.hint}
+                  onClick={() => choosePieceStyle(style.id)}
+                >
+                  {style.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
         {game && (
           <DisplayRail
             options={display}
@@ -200,6 +257,23 @@ export function App() {
               </div>
             )}
             <PlayerBar game={game} color={top} receivedAt={state.gameReceivedAt} />
+            {pieceStyle === '3d' ? (
+              <Suspense fallback={<div className="board-frame board-3d-loading">Loading the 3D board…</div>}>
+                <Board3D
+                  game={game}
+                  orientation={orientation}
+                  interactive={online && game.status === 'active' && !game.engineThinking}
+                  thinking={thinking}
+                  showHints={display.moveHints}
+                  onMove={(uci) => send({ type: 'make_move', uci, positionId: game.positionId })}
+                  onSquareClick={
+                    analysisMode
+                      ? (square) => send({ type: 'inspect_square', square, positionId: game.positionId })
+                      : undefined
+                  }
+                />
+              </Suspense>
+            ) : (
             <Board
               game={game}
               orientation={orientation}
@@ -216,6 +290,7 @@ export function App() {
                   : undefined
               }
             />
+            )}
             <PlayerBar game={game} color={orientation} receivedAt={state.gameReceivedAt} />
           </main>
 
@@ -236,5 +311,6 @@ export function App() {
         </>
       )}
     </div>
+    </PieceArtContext.Provider>
   );
 }

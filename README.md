@@ -46,6 +46,16 @@ Open http://localhost:5173. The page reconnects by itself if the engine is
 restarted. If Prolog cannot be started the engine still plays, on search alone,
 and the UI says so.
 
+## Piece styles
+
+The **Pieces** switch in the left rail changes how the game is drawn. It is presentation only; the engine never hears of it.
+
+- **Classic**: glass chess pieces on a flat board.
+- **Figures**: the same glass, drawn as statues (soldier, cleric, tower, horse, queen, king).
+- **3D**: a 3D board of statues that fight when one takes another. Click to move. The analysis overlays, keyboard play and drag are only on the flat boards. Three.js is fetched only if this is chosen.
+
+Animations are skipped for anyone whose device asks for reduced motion.
+
 ## Play it without Vite
 
 `npm --prefix web run build` writes `web/dist`. When that folder exists the

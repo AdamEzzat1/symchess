@@ -1,0 +1,821 @@
+// The 3D board: the same position, drawn as glass statues that fight when one
+// takes another. Presentation only. Legal moves still come from the engine's
+// list, and after every animation the scene is reconciled against the
+// engine's board, so what is on screen can never drift from the real position.
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { FILES } from '../geometry';
+import { activateSquare, targetsFrom } from '../moveInput';
+import type { Color, GameState, LegalMove, PieceCode, Square } from '../protocol';
+import { PromotionPicker } from './Board';
+
+interface Props {
+  game: GameState;
+  orientation: Color;
+  interactive: boolean;
+  thinking: boolean;
+  showHints: boolean;
+  onMove: (uci: string) => void;
+  onSquareClick?: (square: Square) => void;
+}
+
+const ICE = { color: 0xcdeaf6, emissive: 0x2f8fb0, glow: 0x39d5ff, rest: 0.07 };
+const AMETHYST = { color: 0x3b2d74, emissive: 0x5b40b4, glow: 0xd3bcff, rest: 0.14 };
+
+/** Development aid: `?slow=6` stretches every animation so it can be inspected. */
+const SLOW = Math.max(1, Number(new URLSearchParams(window.location.search).get('slow')) || 1);
+
+function squarePosition(square: Square): THREE.Vector3 {
+  const file = square.charCodeAt(0) - 97;
+  const rank = Number(square[1]) - 1;
+  return new THREE.Vector3(file - 3.5, 0, 3.5 - rank);
+}
+
+function squareFromPoint(p: THREE.Vector3): Square | null {
+  const file = Math.floor(p.x + 4);
+  const rank = Math.floor(4 - p.z);
+  if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+  return `${FILES[file]}${rank + 1}`;
+}
+
+const UP = new THREE.Vector3(0, 1, 0);
+const mix = (a: number, b: number, k: number) => a + (b - a) * k;
+const ease = (k: number) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
+
+/** The yaw that turns a statue's front (-z) toward `toward`. */
+const yawToward = (toward: THREE.Vector3) => Math.atan2(-toward.x, -toward.z);
+
+/** Interpolate between two headings the short way round. */
+function mixYaw(a: number, b: number, k: number) {
+  const turn = ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  return a + turn * k;
+}
+
+/** Stand a statue at heading `yaw`, tipped toward `toward` by `angle`. */
+function pose(statue: THREE.Object3D, yaw: number, toward: THREE.Vector3, angle: number) {
+  const axis = new THREE.Vector3().crossVectors(UP, toward).normalize();
+  statue.quaternion.setFromAxisAngle(axis, angle).multiply(new THREE.Quaternion().setFromAxisAngle(UP, yaw));
+}
+
+interface Tween {
+  start: number;
+  duration: number;
+  step: (k: number) => void;
+  done?: () => void;
+}
+
+interface StatueData {
+  code: PieceCode;
+  material: THREE.MeshPhysicalMaterial;
+  /** Resting heading: white faces up the board, black faces down it. */
+  facing: number;
+  lift: number;
+  /** The weapon arm, hinged at the shoulder. */
+  arm: THREE.Group;
+  /** Shoulder angles for the wind-up and for the moment of the blow. */
+  windup: number;
+  hit: number;
+  /** How far the body leans back before striking (a horse rears). */
+  rear: number;
+}
+
+interface Statue extends THREE.Group {
+  userData: StatueData;
+}
+
+/**
+ * Builds one statue from simple solids. Its front is -z. Every statue has a
+ * weapon arm hinged at the shoulder, which is what swings in a fight.
+ */
+function buildStatue(code: PieceCode): Statue {
+  const white = code[0] === 'w';
+  const tone = white ? ICE : AMETHYST;
+  const material = new THREE.MeshPhysicalMaterial({
+    color: tone.color,
+    emissive: tone.emissive,
+    emissiveIntensity: tone.rest,
+    roughness: 0.34,
+    metalness: 0.05,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.35,
+    transparent: true,
+    opacity: 0.94,
+  });
+  const gem = new THREE.MeshBasicMaterial({ color: tone.glow });
+  const group = new THREE.Group() as Statue;
+
+  type Parent = THREE.Object3D;
+  const add = (parent: Parent, geometry: THREE.BufferGeometry, x: number, y: number, z: number, mat: THREE.Material = material) => {
+    const mesh = new THREE.Mesh(geometry, mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    parent.add(mesh);
+    return mesh;
+  };
+  /** A turned solid whose foot is at height `y`. */
+  const turned = (top: number, bottom: number, height: number, y: number, sides = 20, parent: Parent = group) =>
+    add(parent, new THREE.CylinderGeometry(top, bottom, height, sides), 0, y + height / 2, 0);
+  const tube = (r: number, height: number, x: number, y: number, z: number, parent: Parent = group) =>
+    add(parent, new THREE.CylinderGeometry(r, r, height, 10), x, y + height / 2, z);
+  const ball = (r: number, x: number, y: number, z: number, mat?: THREE.Material, parent: Parent = group) =>
+    add(parent, new THREE.SphereGeometry(r, 18, 12), x, y, z, mat);
+  const block = (w: number, h: number, d: number, x: number, y: number, z: number, mat?: THREE.Material, parent: Parent = group) =>
+    add(parent, new THREE.BoxGeometry(w, h, d), x, y, z, mat);
+  const spike = (r: number, height: number, x: number, y: number, z: number, parent: Parent = group) =>
+    add(parent, new THREE.ConeGeometry(r, height, 10), x, y + height / 2, z);
+
+  // The plinth every statue stands on.
+  turned(0.36, 0.4, 0.07, 0, 28);
+  turned(0.3, 0.34, 0.05, 0.07, 28);
+  const floor = 0.12;
+
+  /** Torso, shoulder guards, neck and head on top of legs or a robe. Returns the head's height. */
+  const person = (o: { robe: boolean; hem: number; waist: number; chest: number; hips: number; shoulders: number }) => {
+    if (o.robe) {
+      turned(o.waist, o.hem, o.hips, floor);
+    } else {
+      tube(0.042, o.hips, -0.055, floor, 0);
+      tube(0.042, o.hips, 0.055, floor, 0);
+      block(0.07, 0.03, 0.11, -0.055, floor + 0.015, -0.02);
+      block(0.07, 0.03, 0.11, 0.055, floor + 0.015, -0.02);
+    }
+    turned(o.chest, o.waist, o.shoulders - o.hips, floor + o.hips);
+    turned(o.waist + 0.012, o.waist + 0.012, 0.03, floor + o.hips - 0.01);
+    ball(0.058, -o.chest - 0.012, floor + o.shoulders - 0.025, 0);
+    ball(0.058, o.chest + 0.012, floor + o.shoulders - 0.025, 0);
+    turned(0.035, 0.045, 0.04, floor + o.shoulders);
+    const head = floor + o.shoulders + 0.105;
+    ball(0.075, 0, head, 0);
+    return head;
+  };
+
+  /** The hinged weapon arm: an arm hanging from the shoulder, ending in a hand. */
+  const weaponArm = (x: number, y: number, thickness = 0.028) => {
+    const arm = new THREE.Group();
+    arm.position.set(x, y, 0);
+    group.add(arm);
+    tube(thickness, 0.2, 0, -0.2, 0, arm);
+    ball(thickness + 0.01, 0, -0.2, 0, undefined, arm);
+    return arm;
+  };
+  /** The off arm, fixed, for a shield or simply for balance. */
+  const offArm = (x: number, y: number) => {
+    tube(0.028, 0.2, x, y - 0.2, 0);
+    ball(0.036, x, y - 0.2, 0);
+  };
+  /** A sword held point-down beside the body, the way a statue stands at rest. */
+  const sword = (arm: Parent, length: number) => {
+    block(0.03, length, 0.012, 0, -0.225 - length / 2, 0, undefined, arm);
+    block(0.12, 0.022, 0.026, 0, -0.225, 0, undefined, arm);
+    ball(0.02, 0, -0.165, 0, gem, arm);
+  };
+  /** A pole through the hand: butt on the ground, head in the air. */
+  const pole = (arm: Parent, below: number, above: number) => tube(0.013, below + above, 0, -0.2 - below, 0, arm);
+  const cape = (width: number, top: number, length: number, depth: number) => {
+    block(width, length, 0.016, 0, floor + top - length / 2, depth + 0.02).rotation.x = -0.12;
+  };
+
+  let arm: THREE.Group;
+  let windup = 3.3;
+  let hit = 1.25;
+  let rear = 0.18;
+
+  switch (code[1]) {
+    // Infantry: kettle helm, round shield, spear.
+    case 'P': {
+      const head = person({ robe: false, hem: 0, waist: 0.085, chest: 0.11, hips: 0.2, shoulders: 0.42 });
+      turned(0.1, 0.13, 0.11, floor + 0.14); // the skirt of the tunic
+      add(group, new THREE.SphereGeometry(0.086, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), 0, head + 0.01, 0);
+      turned(0.118, 0.118, 0.012, head + 0.005);
+      offArm(-0.14, floor + 0.4);
+      const shield = add(group, new THREE.CylinderGeometry(0.13, 0.13, 0.028, 22), -0.15, floor + 0.27, -0.09);
+      shield.rotation.x = Math.PI / 2;
+      ball(0.032, -0.15, floor + 0.27, -0.115, gem);
+      arm = weaponArm(0.14, floor + 0.4);
+      pole(arm, 0.2, 0.55);
+      spike(0.03, 0.1, 0, 0.35, 0, arm);
+      windup = 0.3; // a spear is drawn back a little, then levelled and driven in
+      hit = -1.45;
+      break;
+    }
+    // A siege tower that has stood up: battlements for a head, a hammer fist.
+    case 'R': {
+      turned(0.2, 0.26, 0.42, floor, 8);
+      turned(0.26, 0.22, 0.12, floor + 0.42, 8);
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        block(0.1, 0.09, 0.1, Math.cos(a) * 0.2, floor + 0.585, Math.sin(a) * 0.2).rotation.y = -a;
+      }
+      block(0.2, 0.03, 0.02, 0, floor + 0.48, -0.245, gem);
+      block(0.11, 0.16, 0.02, 0, floor + 0.09, -0.25); // the gate
+      ball(0.1, -0.29, floor + 0.38, 0);
+      tube(0.05, 0.2, -0.3, floor + 0.17, 0);
+      block(0.13, 0.12, 0.13, -0.3, floor + 0.13, 0);
+      ball(0.1, 0.29, floor + 0.38, 0);
+      arm = weaponArm(0.3, floor + 0.38, 0.05);
+      block(0.15, 0.14, 0.15, 0, -0.26, 0, undefined, arm);
+      windup = 3.1;
+      hit = 1.3;
+      break;
+    }
+    // A mounted knight: war horse, rider in a great helm, sword.
+    case 'N': {
+      for (const x of [-0.08, 0.08]) for (const z of [-0.19, 0.2]) tube(0.034, 0.24, x, floor, z);
+      const barrel = add(group, new THREE.CapsuleGeometry(0.12, 0.3, 6, 14), 0, floor + 0.34, 0.01);
+      barrel.rotation.x = Math.PI / 2;
+      block(0.27, 0.15, 0.36, 0, floor + 0.3, 0.02); // the caparison hanging over its flanks
+      const neck = add(group, new THREE.CylinderGeometry(0.06, 0.095, 0.3, 12), 0, floor + 0.52, -0.25);
+      neck.rotation.x = -0.6;
+      const skull = block(0.1, 0.11, 0.25, 0, floor + 0.66, -0.4);
+      skull.rotation.x = 0.55;
+      spike(0.022, 0.07, -0.035, floor + 0.7, -0.31);
+      spike(0.022, 0.07, 0.035, floor + 0.7, -0.31);
+      ball(0.02, -0.055, floor + 0.68, -0.38, gem);
+      ball(0.02, 0.055, floor + 0.68, -0.38, gem);
+      const tail = spike(0.035, 0.22, 0, floor + 0.2, 0.27);
+      tail.rotation.x = Math.PI - 0.5;
+      // The rider.
+      turned(0.085, 0.075, 0.2, floor + 0.44);
+      ball(0.05, -0.1, floor + 0.62, 0.01);
+      ball(0.05, 0.1, floor + 0.62, 0.01);
+      turned(0.062, 0.066, 0.12, floor + 0.65, 12);
+      block(0.09, 0.016, 0.02, 0, floor + 0.72, -0.064, gem);
+      spike(0.02, 0.1, 0, floor + 0.77, 0.02);
+      const shield = block(0.02, 0.2, 0.15, -0.13, floor + 0.5, -0.02);
+      shield.rotation.z = 0.12;
+      arm = weaponArm(0.12, floor + 0.63, 0.024);
+      sword(arm, 0.3);
+      rear = 0.5;
+      break;
+    }
+    // A bishop: long robe, mitre, crozier.
+    case 'B': {
+      const head = person({ robe: true, hem: 0.2, waist: 0.1, chest: 0.115, hips: 0.38, shoulders: 0.6 });
+      const mitre = spike(0.082, 0.2, 0, head + 0.045, 0);
+      mitre.scale.z = 0.62;
+      turned(0.084, 0.084, 0.022, head + 0.04);
+      block(0.022, 0.15, 0.012, 0, floor + 0.44, -0.117, gem);
+      block(0.085, 0.022, 0.012, 0, floor + 0.48, -0.117, gem);
+      block(0.05, 0.36, 0.012, 0, floor + 0.2, -0.165).rotation.x = 0.24; // the stole
+      offArm(-0.14, floor + 0.57);
+      arm = weaponArm(0.14, floor + 0.57);
+      pole(arm, 0.36, 0.5);
+      const crook = add(arm, new THREE.TorusGeometry(0.05, 0.013, 8, 20, Math.PI * 1.5), 0, 0.33, -0.05);
+      crook.rotation.y = Math.PI / 2;
+      crook.rotation.z = -Math.PI / 4;
+      windup = 0.55; // the staff is swung over the top and brought down
+      hit = -1.35;
+      break;
+    }
+    // A warrior queen: breastplate over a gown, tall crown, cloak, sword.
+    case 'Q': {
+      const head = person({ robe: true, hem: 0.2, waist: 0.075, chest: 0.1, hips: 0.42, shoulders: 0.64 });
+      turned(0.105, 0.085, 0.09, floor + 0.5); // breastplate
+      turned(0.078, 0.066, 0.04, head + 0.05);
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        spike(0.016, i % 2 ? 0.07 : 0.11, Math.cos(a) * 0.066, head + 0.085, Math.sin(a) * 0.066);
+      }
+      ball(0.022, 0, head + 0.07, -0.078, gem);
+      ball(0.026, 0, floor + 0.56, -0.105, gem);
+      cape(0.2, 0.62, 0.52, 0.1);
+      offArm(-0.125, floor + 0.61);
+      arm = weaponArm(0.125, floor + 0.61);
+      sword(arm, 0.36);
+      break;
+    }
+    // A warrior king: broad and bearded, crown and cross, cloak, great sword.
+    default: {
+      const head = person({ robe: true, hem: 0.23, waist: 0.115, chest: 0.135, hips: 0.44, shoulders: 0.7 });
+      turned(0.14, 0.12, 0.1, floor + 0.55); // cuirass
+      const beard = spike(0.05, 0.1, 0, head - 0.15, -0.05);
+      beard.rotation.x = Math.PI;
+      beard.position.y = head - 0.075;
+      turned(0.092, 0.078, 0.06, head + 0.05);
+      for (let i = 0; i < 4; i++) {
+        const a = (i * Math.PI) / 2 + Math.PI / 4;
+        spike(0.018, 0.06, Math.cos(a) * 0.078, head + 0.105, Math.sin(a) * 0.078);
+      }
+      block(0.026, 0.14, 0.026, 0, head + 0.19, 0);
+      block(0.09, 0.026, 0.026, 0, head + 0.2, 0);
+      ball(0.028, 0, floor + 0.62, -0.14, gem);
+      cape(0.27, 0.68, 0.58, 0.13);
+      offArm(-0.16, floor + 0.67);
+      const shield = block(0.02, 0.24, 0.18, -0.19, floor + 0.44, -0.03);
+      shield.rotation.z = 0.1;
+      arm = weaponArm(0.16, floor + 0.67, 0.032);
+      sword(arm, 0.43);
+      break;
+    }
+  }
+
+  const facing = white ? 0 : Math.PI;
+  group.rotation.y = facing;
+  group.userData = { code, material, facing, lift: 0, arm, windup, hit, rear };
+  return group;
+}
+
+/** Everything Three.js: built once, then told about each new game state. */
+function createWorld(canvas: HTMLCanvasElement) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, 4 / 3, 0.1, 100);
+  const cameraHome = new THREE.Vector3();
+  let shake = 0;
+
+  scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x10151c, 1.15));
+  const key = new THREE.DirectionalLight(0xffffff, 2.2);
+  key.position.set(-5, 10, 6);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.camera.left = key.shadow.camera.bottom = -6;
+  key.shadow.camera.right = key.shadow.camera.top = 6;
+  scene.add(key);
+  const rim = new THREE.PointLight(0x4aa8ff, 30, 30);
+  rim.position.set(5, 5, -7);
+  scene.add(rim);
+
+  // The board: 64 slabs on a dark base.
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(8.5, 0.3, 8.5),
+    new THREE.MeshStandardMaterial({ color: 0x0c131b, roughness: 0.7 }),
+  );
+  base.position.y = -0.17;
+  base.receiveShadow = true;
+  scene.add(base);
+  const slab = new THREE.BoxGeometry(1, 0.04, 1);
+  const light = new THREE.MeshStandardMaterial({ color: 0x56626f, roughness: 0.45, metalness: 0.15 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x252d36, roughness: 0.45, metalness: 0.15 });
+  for (let file = 0; file < 8; file++) {
+    for (let rank = 0; rank < 8; rank++) {
+      const mesh = new THREE.Mesh(slab, (file + rank) % 2 === 1 ? light : dark);
+      mesh.position.set(file - 3.5, -0.02, 3.5 - rank);
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+    }
+  }
+
+  // Square markers, all flat on the board.
+  const flat = (geometry: THREE.BufferGeometry, color: number, opacity: number) => {
+    const mesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }),
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 0.006;
+    mesh.visible = false;
+    scene.add(mesh);
+    return mesh;
+  };
+  const tile = new THREE.PlaneGeometry(0.96, 0.96);
+  const lastMarks = [flat(tile, 0x4aa8ff, 0.2), flat(tile, 0x4aa8ff, 0.2)];
+  const selectedMark = flat(tile, 0x4aa8ff, 0.4);
+  const checkMark = flat(new THREE.CircleGeometry(0.46, 32), 0xff5b4f, 0.55);
+  const dot = new THREE.CircleGeometry(0.14, 24);
+  const ring = new THREE.RingGeometry(0.36, 0.45, 32);
+  const hints: THREE.Mesh[] = [];
+
+  const statues = new Map<Square, Statue>();
+  let tweens: Tween[] = [];
+  let busy = false;
+  let shown: GameState | null = null;
+  let waiting: GameState | null = null;
+  let selected: Square | null = null;
+  let disposed = false;
+  let calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const tween = (duration: number, step: (k: number) => void, done?: () => void, delay = 0) => {
+    tweens.push({ start: performance.now() + delay * SLOW, duration: duration * SLOW, step, done });
+  };
+
+  const place = (statue: Statue, square: Square) => {
+    statue.position.copy(squarePosition(square));
+    statue.rotation.set(0, statue.userData.facing, 0);
+    statue.userData.arm.rotation.x = 0;
+    statue.scale.setScalar(1);
+  };
+
+  /** Make the scene match the engine's board exactly. */
+  const reconcile = (board: Record<Square, PieceCode>) => {
+    for (const [square, statue] of statues) {
+      if (board[square] !== statue.userData.code) {
+        scene.remove(statue);
+        statues.delete(square);
+      }
+    }
+    for (const square of Object.keys(board)) {
+      const code = board[square]!;
+      let statue = statues.get(square);
+      if (!statue) {
+        statue = buildStatue(code);
+        statues.set(square, statue);
+        scene.add(statue);
+      }
+      place(statue, square);
+    }
+  };
+
+  const markers = (game: GameState) => {
+    lastMarks.forEach((mark, i) => {
+      const square = game.lastMove ? (i === 0 ? game.lastMove.from : game.lastMove.to) : null;
+      mark.visible = square !== null;
+      if (square) mark.position.copy(squarePosition(square)).setY(0.006);
+    });
+    checkMark.visible = game.check !== null;
+    if (game.check) checkMark.position.copy(squarePosition(game.check)).setY(0.008);
+  };
+
+  /** The blow lands: a flash, a jolt, and the loser is thrown back and breaks apart. */
+  const shatter = (victim: Statue, yaw: number, away: THREE.Vector3) => {
+    const material = victim.userData.material;
+    const from = victim.position.clone();
+    const glow = victim.userData.code[0] === 'w' ? ICE.glow : AMETHYST.glow;
+    shake = 1;
+
+    const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false });
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), flashMaterial);
+    flash.position.copy(from).setY(0.5);
+    scene.add(flash);
+    tween(
+      200,
+      (k) => {
+        flash.scale.setScalar(0.3 + k * 1.5);
+        flashMaterial.opacity = 0.9 * (1 - k);
+      },
+      () => scene.remove(flash),
+    );
+
+    tween(
+      520,
+      (k) => {
+        // Knocked back and toppling, then gone.
+        const fall = 1 - (1 - k) ** 2;
+        victim.position.copy(from).addScaledVector(away, 0.4 * fall).setY(-0.12 * k * k);
+        pose(victim, yaw, away, 1.25 * fall);
+        victim.scale.setScalar(1 - 0.6 * k * k);
+        material.opacity = 0.94 * (1 - k * k);
+      },
+      () => scene.remove(victim),
+    );
+
+    const shard = new THREE.TetrahedronGeometry(0.065);
+    const shardMaterial = new THREE.MeshBasicMaterial({ color: glow, transparent: true });
+    for (let i = 0; i < 22; i++) {
+      const mesh = new THREE.Mesh(shard, shardMaterial);
+      const angle = (i / 22) * Math.PI * 2;
+      const speed = 0.6 + (i % 4) * 0.3;
+      // Most of the debris is thrown the way the blow travelled.
+      const velocity = new THREE.Vector3(Math.cos(angle) * speed, 1.3 + (i % 3) * 0.6, Math.sin(angle) * speed).addScaledVector(away, 1.6);
+      const origin = from.clone().setY(0.25 + (i % 6) * 0.1);
+      mesh.position.copy(origin);
+      mesh.scale.setScalar(0.6 + (i % 3) * 0.4);
+      scene.add(mesh);
+      tween(
+        760,
+        (k) => {
+          const t = k * 0.76;
+          mesh.position.set(origin.x + velocity.x * t, Math.max(0.03, origin.y + velocity.y * t - 4.6 * t * t), origin.z + velocity.z * t);
+          mesh.rotation.set(k * 7, k * 5, 0);
+          shardMaterial.opacity = 1 - k * k;
+        },
+        () => scene.remove(mesh),
+      );
+    }
+  };
+
+  const finish = (game: GameState) => {
+    reconcile(game.board);
+    markers(game);
+    shown = game;
+    busy = false;
+    if (waiting) {
+      const next = waiting;
+      waiting = null;
+      show(next);
+    }
+  };
+
+  /**
+   * Turn to face the enemy and close in; draw the weapon back; strike, fast;
+   * then lower the weapon and take the square. A little over a second.
+   */
+  const fight = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
+    const data = mover.userData;
+    const along = to.clone().sub(from).normalize();
+    const back = along.clone().negate();
+    const reach = to.clone().addScaledVector(along, -0.7);
+    const yaw = yawToward(along);
+    const victimYaw = yawToward(back);
+    const braced = victim.userData.facing;
+
+    // 1. Close in. The defender turns to meet it.
+    tween(400, (k) => {
+      const e = ease(k);
+      mover.position.lerpVectors(from, reach, e).setY(Math.abs(Math.sin(k * Math.PI * 3)) * 0.035);
+      mover.rotation.set(0, mixYaw(data.facing, yaw, Math.min(1, k * 2)), 0);
+      victim.rotation.set(0, mixYaw(braced, victimYaw, e), 0);
+    });
+
+    // 2. Wind up slowly, then strike in a fraction of the time.
+    let struck = false;
+    tween(
+      460,
+      (k) => {
+        if (k < 0.6) {
+          const w = ease(k / 0.6);
+          data.arm.rotation.x = mix(0, data.windup, w);
+          pose(mover, yaw, along, -data.rear * w);
+          mover.position.copy(reach).addScaledVector(along, -0.07 * w);
+        } else if (k < 0.8) {
+          const h = ((k - 0.6) / 0.2) ** 2;
+          data.arm.rotation.x = mix(data.windup, data.hit, h);
+          pose(mover, yaw, along, mix(-data.rear, 0.34, h));
+          mover.position.copy(reach).addScaledVector(along, mix(-0.07, 0.24, h));
+          if (!struck && h > 0.7) {
+            struck = true;
+            shatter(victim, victimYaw, along);
+          }
+        } else {
+          // Follow through.
+          const f = (k - 0.8) / 0.2;
+          data.arm.rotation.x = data.hit;
+          pose(mover, yaw, along, mix(0.34, 0.2, f));
+          mover.position.copy(reach).addScaledVector(along, 0.24);
+          if (!struck) {
+            struck = true;
+            shatter(victim, victimYaw, along);
+          }
+        }
+      },
+      undefined,
+      400,
+    );
+
+    // 3. Lower the weapon, square up, and take the square.
+    const lunge = reach.clone().addScaledVector(along, 0.24);
+    tween(
+      380,
+      (k) => {
+        const e = ease(k);
+        data.arm.rotation.x = mix(data.hit, 0, e);
+        mover.position.lerpVectors(lunge, to, e);
+        pose(mover, mixYaw(yaw, data.facing, e), along, 0.2 * (1 - e));
+      },
+      () => finish(game),
+      880,
+    );
+  };
+
+  const show = (game: GameState) => {
+    if (busy) {
+      waiting = game;
+      return;
+    }
+    const before = shown;
+    const move = game.lastMove;
+    const mover = move ? statues.get(move.from) : undefined;
+    // Animate only a single step on from what is on screen.
+    const continues =
+      before !== null &&
+      move !== null &&
+      mover !== undefined &&
+      game.positionId !== before.positionId &&
+      before.board[move.from] !== undefined &&
+      game.board[move.from] === undefined &&
+      game.board[move.to] !== undefined;
+    if (!continues || !move || !mover) {
+      reconcile(game.board);
+      markers(game);
+      shown = game;
+      return;
+    }
+    busy = true;
+    markers(game);
+    const from = squarePosition(move.from);
+    const to = squarePosition(move.to);
+    const victim = statues.get(move.to);
+    statues.delete(move.from);
+    if (victim) statues.delete(move.to);
+    statues.set(move.to, mover);
+    // The statue keeps its old identity until the engine's board says otherwise
+    // (a promotion is swapped in by `reconcile` when the move ends).
+    const taken = victim !== undefined && victim.userData.code[0] !== mover.userData.code[0];
+    if (taken && !calm) {
+      fight(mover, victim, from, to, game);
+    } else {
+      if (victim) scene.remove(victim);
+      tween(
+        calm ? 160 : 420,
+        (k) => {
+          mover.position.lerpVectors(from, to, ease(k)).setY(calm ? 0 : Math.sin(k * Math.PI) * 0.1);
+        },
+        () => finish(game),
+      );
+    }
+  };
+
+  const select = (square: Square | null, targets: readonly LegalMove[], showHints: boolean) => {
+    selected = square;
+    selectedMark.visible = square !== null;
+    if (square) selectedMark.position.copy(squarePosition(square)).setY(0.007);
+    hints.forEach((hint) => scene.remove(hint));
+    hints.length = 0;
+    if (!showHints) return;
+    for (const move of targets) {
+      const mesh = new THREE.Mesh(
+        move.capture ? ring : dot,
+        new THREE.MeshBasicMaterial({ color: move.capture ? 0xff6b5f : 0xcfe6ff, transparent: true, opacity: 0.8, depthWrite: false }),
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.copy(squarePosition(move.to)).setY(0.009);
+      scene.add(mesh);
+      hints.push(mesh);
+    }
+  };
+
+  const setCamera = (orientation: Color, width: number, height: number) => {
+    const side = orientation === 'white' ? 1 : -1;
+    camera.aspect = width / height;
+    // Pull back on narrow frames so the whole board stays in view.
+    const distance = Math.max(1, 4 / 3 / camera.aspect);
+    cameraHome.set(0, 6.4 * distance, 10.3 * side * distance);
+    camera.position.copy(cameraHome);
+    camera.lookAt(0, -0.2, 0.75 * side);
+    camera.updateProjectionMatrix();
+    renderer.setSize(width, height, false);
+    key.position.set(-5 * side, 10, 6 * side);
+    rim.position.set(5 * side, 5, -7 * side);
+  };
+
+  const raycaster = new THREE.Raycaster();
+  const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const squareUnder = (clientX: number, clientY: number): Square | null => {
+    const rect = canvas.getBoundingClientRect();
+    const pointer = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    const point = new THREE.Vector3();
+    return raycaster.ray.intersectPlane(ground, point) ? squareFromPoint(point) : null;
+  };
+
+  const frame = (now: number) => {
+    if (disposed) return;
+    requestAnimationFrame(frame);
+    const running = tweens;
+    tweens = [];
+    for (const item of running) {
+      const k = Math.min(1, Math.max(0, (now - item.start) / item.duration));
+      if (now >= item.start) item.step(k);
+      if (k < 1) tweens.push(item);
+      else item.done?.();
+    }
+    // A selected statue rises and brightens; the rest settle back.
+    if (!busy) {
+      for (const [square, statue] of statues) {
+        const data = statue.userData;
+        const awake = square === selected ? 1 : 0;
+        data.lift += (awake - data.lift) * 0.2;
+        statue.position.y = data.lift * 0.16;
+        // Awake, it half-raises its weapon, ready.
+        data.arm.rotation.x = Math.sign(data.hit) * 0.35 * data.lift;
+        const rest = data.code[0] === 'w' ? ICE.rest : AMETHYST.rest;
+        data.material.emissiveIntensity = rest + data.lift * (0.5 + 0.12 * Math.sin(now / 180));
+      }
+    }
+    // The jolt of a blow: a quick, dying tremor.
+    if (shake > 0.01) {
+      camera.position.set(
+        cameraHome.x + Math.sin(now / 13) * 0.07 * shake,
+        cameraHome.y + Math.cos(now / 17) * 0.05 * shake,
+        cameraHome.z,
+      );
+      shake *= 0.86;
+    } else if (shake !== 0) {
+      shake = 0;
+      camera.position.copy(cameraHome);
+    }
+    renderer.render(scene, camera);
+  };
+  requestAnimationFrame(frame);
+
+  return {
+    show,
+    select,
+    setCamera,
+    squareUnder,
+    setCalm(value: boolean) {
+      calm = value;
+    },
+    dispose() {
+      disposed = true;
+      renderer.dispose();
+    },
+  };
+}
+
+export default function Board3D({ game, orientation, interactive, thinking, showHints, onMove, onSquareClick }: Props) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const world = useRef<ReturnType<typeof createWorld> | null>(null);
+  const [selected, setSelected] = useState<Square | null>(null);
+  const [promotion, setPromotion] = useState<LegalMove[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const legal = useMemo(() => (interactive ? game.legalMoves : []), [game.legalMoves, interactive]);
+  const targets = useMemo(() => targetsFrom(legal, selected), [legal, selected]);
+
+  useEffect(() => {
+    try {
+      world.current = createWorld(canvasRef.current!);
+    } catch {
+      setFailed(true);
+      return;
+    }
+    return () => {
+      world.current?.dispose();
+      world.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame || !world.current) return;
+    const fit = () => world.current?.setCamera(orientation, frame.clientWidth, frame.clientHeight);
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [orientation, failed]);
+
+  useEffect(() => {
+    setSelected(null);
+    setPromotion(null);
+  }, [game.positionId]);
+
+  useEffect(() => {
+    world.current?.show(game);
+  }, [game]);
+
+  useEffect(() => {
+    world.current?.select(selected, targets, showHints);
+  }, [selected, targets, showHints]);
+
+  const press = (clientX: number, clientY: number) => {
+    const square = world.current?.squareUnder(clientX, clientY);
+    if (!square || promotion) return;
+    onSquareClick?.(square);
+    const action = activateSquare(legal, selected, square);
+    switch (action.kind) {
+      case 'move':
+        onMove(action.uci);
+        setSelected(null);
+        break;
+      case 'promotion':
+        setPromotion(action.options);
+        setSelected(null);
+        break;
+      case 'select':
+        setSelected(action.square);
+        break;
+      default:
+        setSelected(null);
+    }
+  };
+
+  if (failed) {
+    return (
+      <div className="board-frame board-3d-failed" role="status">
+        This browser could not start 3D graphics. Choose Classic or Figures under Pieces.
+      </div>
+    );
+  }
+
+  return (
+    <div className={`board-frame board-3d${thinking ? ' board-thinking' : ''}`}>
+      <div ref={frameRef} className="board-3d-view">
+        <canvas
+          ref={canvasRef}
+          className={`board-3d-canvas${interactive ? '' : ' board-locked'}`}
+          role="img"
+          aria-label={`Chess board in 3D, ${game.turn} to move. Use Classic or Figures for keyboard play.`}
+          onClick={(event) => press(event.clientX, event.clientY)}
+        />
+      </div>
+      {promotion && (
+        <PromotionPicker
+          options={promotion}
+          turn={game.turn}
+          onChoose={(uci) => {
+            onMove(uci);
+            setPromotion(null);
+          }}
+          onCancel={() => setPromotion(null)}
+        />
+      )}
+    </div>
+  );
+}

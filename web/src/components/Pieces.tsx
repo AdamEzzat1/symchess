@@ -11,7 +11,8 @@
 //   4. frost  : a soft light across the upper left
 //   5. detail : the few engraved lines (arrow-slit, flame cut, petals, mane)
 
-import type { ReactNode } from 'react';
+import { createContext, useContext } from 'react';
+import { FIGURE_ART, type Artwork } from './PieceFigures';
 
 export type PieceLetter = 'K' | 'Q' | 'R' | 'B' | 'N' | 'P';
 
@@ -45,10 +46,9 @@ const bead = (y: number, half: number) => (
   <rect className="pc-body" x={50 - half} y={y} width={half * 2} height="4" rx="2" />
 );
 
-interface Artwork {
-  body: ReactNode;
-  detail?: ReactNode;
-}
+/** Which drawn set to use. `figures` is the statue set in PieceFigures. */
+export type PieceArt = 'classic' | 'figures';
+export const PieceArtContext = createContext<PieceArt>('classic');
 
 const ART: Record<PieceLetter, Artwork> = {
   // A pearl on a stem.
@@ -231,7 +231,8 @@ interface ShapeProps {
 /** The piece artwork in its own 100 x 100 coordinate space. */
 export function PieceShape({ code }: ShapeProps) {
   const letter = (code[1] ?? 'P') as PieceLetter;
-  const art = ART[letter] ?? ART.P;
+  const table = useContext(PieceArtContext) === 'figures' ? FIGURE_ART : ART;
+  const art = table[letter] ?? table.P;
   return (
     <g className={code[0] === 'w' ? 'pc pc-white' : 'pc pc-black'}>
       <ellipse className="pc-shadow" cx="52" cy="90.5" rx="31" ry="4.6" />
@@ -259,18 +260,22 @@ export function PieceSheet() {
   return (
     <div className="piece-sheet">
       <SvgDefs />
-      {(['w', 'b'] as const).map((side) => (
-        <div key={side} className="piece-sheet-row">
-          {letters.map((letter, i) => (
-            <svg key={letter} viewBox="0 0 100 100" className="piece-sheet-cell">
-              <rect width="100" height="100" className={(i + (side === 'w' ? 0 : 1)) % 2 ? 'sq-dark' : 'sq-light'} />
-              <rect width="100" height="100" fill="url(#sq-glass)" />
-              <g transform="translate(5 3) scale(0.9)">
-                <PieceShape code={`${side}${letter}`} />
-              </g>
-            </svg>
+      {(['classic', 'figures'] as const).map((art) => (
+        <PieceArtContext.Provider key={art} value={art}>
+          {(['w', 'b'] as const).map((side) => (
+            <div key={side} className="piece-sheet-row">
+              {letters.map((letter, i) => (
+                <svg key={letter} viewBox="0 0 100 100" className="piece-sheet-cell">
+                  <rect width="100" height="100" className={(i + (side === 'w' ? 0 : 1)) % 2 ? 'sq-dark' : 'sq-light'} />
+                  <rect width="100" height="100" fill="url(#sq-glass)" />
+                  <g transform="translate(5 3) scale(0.9)">
+                    <PieceShape code={`${side}${letter}`} />
+                  </g>
+                </svg>
+              ))}
+            </div>
           ))}
-        </div>
+        </PieceArtContext.Provider>
       ))}
     </div>
   );
