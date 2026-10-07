@@ -621,6 +621,12 @@ select,
 .board-3d-views .btn-toggle {
   padding: 4px 10px;
 }
+/* What the model set put on the board, under the 3D view. */
+.board-3d-models {
+  margin: 6px 4px 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
 .board-3d-loading,
 .board-3d-failed {
   aspect-ratio: 1;

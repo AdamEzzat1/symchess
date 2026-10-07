@@ -181,6 +181,8 @@ The **Pieces** switch in the left rail changes how the game is drawn. It is pres
 
 ![A selected pin shown on the 3D board](docs/screenshots/board-3d-fact.png)
 
+The 3D board can also take its piece shapes from `.glb` model files (the **Models** switch under Pieces). No sculpted models exist yet: the files in `web/public/models/chess/statues/` are blockouts exported from the built-in statues, there to prove the import path and to sculpt over. [docs/SCULPTED_PIECE_PIPELINE.md](docs/SCULPTED_PIECE_PIPELINE.md) says what a model has to be and how to add one.
+
 Animations are skipped for anyone whose device asks for reduced motion.
 
 ## Play it without Vite

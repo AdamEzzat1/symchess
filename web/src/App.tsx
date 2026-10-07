@@ -57,6 +57,28 @@ function initialPieceStyle(): PieceStyle {
   return 'classic';
 }
 
+/** Where the 3D board's piece shapes come from. Presentation only. */
+type Statues = 'built-in' | 'models';
+const STATUES: { id: Statues; label: string; hint: string }[] = [
+  { id: 'built-in', label: 'Built-in', hint: 'The statues built in code' },
+  { id: 'models', label: 'Models', hint: 'Sculpted .glb models from web/public/models, where there are any; the built-in statue for any piece without one' },
+];
+const STATUES_KEY = 'symchess.statues';
+const MODEL_SET = `${import.meta.env.BASE_URL}models/chess/statues/manifest.json`;
+
+function initialStatues(): Statues {
+  const known = (value: string | null): value is Statues => STATUES.some((s) => s.id === value);
+  const linked = LINK.get('statues');
+  if (known(linked)) return linked;
+  try {
+    const saved = window.localStorage.getItem(STATUES_KEY);
+    if (known(saved)) return saved;
+  } catch {
+    // Storage can be blocked; the default is fine.
+  }
+  return 'built-in';
+}
+
 /** How much the pieces act out. Presentation only. */
 type Motion = 'expressive' | 'minimal';
 const MOTIONS: { id: Motion; label: string; hint: string }[] = [
@@ -159,6 +181,15 @@ export function App() {
     setPieceStyle(style);
     try {
       window.localStorage.setItem(STYLE_KEY, style);
+    } catch {
+      // Not remembered, but it still applies now.
+    }
+  };
+  const [statues, setStatues] = useState<Statues>(initialStatues);
+  const chooseStatues = (value: Statues) => {
+    setStatues(value);
+    try {
+      window.localStorage.setItem(STATUES_KEY, value);
     } catch {
       // Not remembered, but it still applies now.
     }
@@ -439,6 +470,22 @@ export function App() {
                 </button>
               ))}
             </div>
+            {pieceStyle === '3d' && (
+              <div className="mode-switch" role="group" aria-label="3D piece shapes">
+                {STATUES.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`btn-toggle${statues === option.id ? ' btn-toggle-on' : ''}`}
+                    aria-pressed={statues === option.id}
+                    title={option.hint}
+                    onClick={() => chooseStatues(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="mode-switch" role="group" aria-label="Motion">
               {MOTIONS.map((m) => (
                 <button
@@ -574,6 +621,7 @@ export function App() {
                   focus={focus?.viz ?? null}
                   frameSquares={frameSquares}
                   showCoords={display.coordinates}
+                  models={statues === 'models' ? MODEL_SET : null}
                   onMove={(uci) => send({ type: 'make_move', uci, positionId: game.positionId })}
                   onSquareClick={
                     analysisMode && !browsing && !reviewing

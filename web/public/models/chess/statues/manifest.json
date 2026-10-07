@@ -1,0 +1,54 @@
+{
+  "name": "Blockout",
+  "note": "Blockouts exported from the built-in statues, not sculpted models.",
+  "pieces": {
+    "pawn": {
+      "file": "pawn.glb",
+      "scale": 1,
+      "yOffset": 0,
+      "rotationY": 180,
+      "shading": "flat",
+      "blockout": true
+    },
+    "knight": {
+      "file": "knight.glb",
+      "scale": 1,
+      "yOffset": 0,
+      "rotationY": 180,
+      "shading": "flat",
+      "blockout": true
+    },
+    "bishop": {
+      "file": "bishop.glb",
+      "scale": 1,
+      "yOffset": 0,
+      "rotationY": 180,
+      "shading": "flat",
+      "blockout": true
+    },
+    "rook": {
+      "file": "rook.glb",
+      "scale": 1,
+      "yOffset": 0,
+      "rotationY": 180,
+      "shading": "flat",
+      "blockout": true
+    },
+    "queen": {
+      "file": "queen.glb",
+      "scale": 1,
+      "yOffset": 0,
+      "rotationY": 180,
+      "shading": "flat",
+      "blockout": true
+    },
+    "king": {
+      "file": "king.glb",
+      "scale": 1,
+      "yOffset": 0,
+      "rotationY": 180,
+      "shading": "flat",
+      "blockout": true
+    }
+  }
+}

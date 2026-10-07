@@ -68,6 +68,8 @@ It is now a second view of the reasoning, not only a showcase, within stated lim
 
 Not there, by decision: the standing analysis layers (all pins, all threats at once), the square inspector's arrows, keyboard play and drag. The flat boards are the precise workbench and the only accessible way to play; the 3D board is the cinematic view of one idea at a time.
 
+Sculpted models: the board can load `.glb` models per piece type and falls back to the built-in statue for any that is missing or broken (`docs/SCULPTED_PIECE_PIPELINE.md`). There are no sculpted models yet, only blockouts exported from the built-in statues, and textures, rigs and compressed files are not supported.
+
 Not measured: frame rate, and behaviour on a phone. Each statue is now a handful of draw calls where it was about twenty-five, so it should be lighter, but that is reasoning.
 
 ### What not to overclaim

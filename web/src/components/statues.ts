@@ -22,6 +22,8 @@ export interface Sculpture {
   hit: number;
   /** How far the body leans back before striking. */
   rear: number;
+  /** Shade with the model's own normals, not facet by facet. Sculpted models set this. */
+  smooth?: boolean;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);

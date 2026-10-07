@@ -10,7 +10,8 @@ import { activateSquare, targetsFrom } from '../moveInput';
 import type { Color, GameState, LegalMove, PieceCode, Square, Viz } from '../protocol';
 import { PromotionPicker } from './Board';
 import { styleSpec } from './Overlays';
-import { sculpture } from './statues';
+import { loadStatueSet, type StatueSet } from '../models/load';
+import { sculpture, type Sculpture } from './statues';
 
 interface Props {
   game: GameState;
@@ -30,6 +31,11 @@ interface Props {
   /** Squares the Focus camera frames: those of the selected fact or plan. */
   frameSquares?: readonly Square[];
   showCoords?: boolean;
+  /**
+   * Address of a model set's manifest. Its sculpted pieces replace the
+   * built-in statues, piece by piece, wherever a model loads.
+   */
+  models?: string | null;
   onMove: (uci: string) => void;
   onSquareClick?: (square: Square) => void;
 }
@@ -116,10 +122,9 @@ interface Statue extends THREE.Group {
 }
 
 /** One statue: the shared sculpture for its piece type, in its side's glass. */
-function buildStatue(code: PieceCode): Statue {
+function buildStatue(code: PieceCode, shape: Sculpture): Statue {
   const white = code[0] === 'w';
   const tone = white ? ICE : AMETHYST;
-  const shape = sculpture(code[1]!);
   // Flat shading leaves every facet showing, which is what makes it read as carved.
   const material = new THREE.MeshPhysicalMaterial({
     color: tone.color,
@@ -131,7 +136,7 @@ function buildStatue(code: PieceCode): Statue {
     clearcoatRoughness: 0.35,
     transparent: true,
     opacity: 0.94,
-    flatShading: true,
+    flatShading: !shape.smooth,
     side: THREE.DoubleSide,
   });
   const gem = white ? ICE_GEM : AMETHYST_GEM;
@@ -244,6 +249,9 @@ function createWorld(canvas: HTMLCanvasElement) {
   let mated: { statue: Statue; positionId: number } | null = null;
 
   const statues = new Map<Square, Statue>();
+  // Where a piece's shape comes from: the built-in statues, or a loaded model set.
+  let shapeOf: (kind: string) => Sculpture = sculpture;
+  let shapesWaiting: ((kind: string) => Sculpture) | null = null;
   let tweens: Tween[] = [];
   // The draw loop runs only while something is moving (see `frame`).
   let looping = false;
@@ -287,7 +295,7 @@ function createWorld(canvas: HTMLCanvasElement) {
       const code = board[square]!;
       let statue = statues.get(square);
       if (!statue) {
-        statue = buildStatue(code);
+        statue = buildStatue(code, shapeOf(code[1]!));
         statues.set(square, statue);
         scene.add(statue);
       }
@@ -477,6 +485,14 @@ function createWorld(canvas: HTMLCanvasElement) {
   };
 
   const finish = (game: GameState) => {
+    if (shapesWaiting) {
+      // A model set arrived during the animation: change over now that it is done.
+      shapeOf = shapesWaiting;
+      shapesWaiting = null;
+      for (const statue of statues.values()) scene.remove(statue);
+      statues.clear();
+      mated = null;
+    }
     reconcile(game.board);
     markers(game);
     mate(game);
@@ -916,6 +932,22 @@ function createWorld(canvas: HTMLCanvasElement) {
     setFocus: waking(setFocus),
     setView: waking(setView),
     setFrame: waking(setFrame),
+    /** Rebuild every statue from another source of shapes. Null: the built-in ones. */
+    setShapes: waking((lookup: ((kind: string) => Sculpture) | null) => {
+      const next = lookup ?? sculpture;
+      if (busy) {
+        shapesWaiting = next;
+        return;
+      }
+      shapeOf = next;
+      for (const statue of statues.values()) scene.remove(statue);
+      statues.clear();
+      mated = null;
+      if (shown) {
+        reconcile(shown.board);
+        mate(shown);
+      }
+    }),
     setCoords: waking((value: boolean) => {
       labels.visible = value;
     }),
@@ -934,6 +966,15 @@ function createWorld(canvas: HTMLCanvasElement) {
   };
 }
 
+/** One line saying what a loaded model set actually put on the board. */
+function modelReport(set: StatueSet): string {
+  const kept = [...set.failed.map((f) => f.piece), ...set.missing];
+  const parts = [`${set.name}: ${set.loaded.length} of 6 pieces from models, ${set.triangles.toLocaleString('en-US')} triangles across those shapes`];
+  if (kept.length > 0) parts.push(`built-in statue kept for ${kept.join(', ')}`);
+  if (set.note) parts.push(set.note);
+  return parts.join(' · ');
+}
+
 export default function Board3D({
   game,
   orientation,
@@ -945,6 +986,7 @@ export default function Board3D({
   focus = null,
   frameSquares,
   showCoords = false,
+  models = null,
   onMove,
   onSquareClick,
 }: Props) {
@@ -955,6 +997,8 @@ export default function Board3D({
   const [promotion, setPromotion] = useState<LegalMove[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [view, setView] = useState<CameraView>('play');
+  // What became of the model set asked for: nothing asked, loading, loaded, or unusable.
+  const [modelSet, setModelSet] = useState<StatueSet | 'loading' | 'failed' | null>(null);
   const canFocus = (frameSquares?.length ?? 0) > 0;
 
   const legal = useMemo(() => (interactive ? game.legalMoves : []), [game.legalMoves, interactive]);
@@ -1019,6 +1063,32 @@ export default function Board3D({
     world.current?.setCoords(showCoords);
   }, [showCoords, failed]);
 
+  useEffect(() => {
+    if (!models) {
+      setModelSet(null);
+      world.current?.setShapes(null);
+      return;
+    }
+    let current = true;
+    setModelSet('loading');
+    loadStatueSet(models).then(
+      (set) => {
+        if (!current) return;
+        setModelSet(set);
+        world.current?.setShapes(set.lookup);
+      },
+      () => {
+        // No manifest, or an unreadable one: the built-in statues stay.
+        if (!current) return;
+        setModelSet('failed');
+        world.current?.setShapes(null);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [models, failed]);
+
   const press = (clientX: number, clientY: number) => {
     const square = world.current?.squareUnder(clientX, clientY);
     if (!square || promotion) return;
@@ -1075,6 +1145,15 @@ export default function Board3D({
           </button>
         ))}
       </div>
+      {modelSet !== null && (
+        <p className="board-3d-models" role="status" data-models={typeof modelSet === 'string' ? modelSet : 'loaded'}>
+          {modelSet === 'loading'
+            ? 'Loading models…'
+            : modelSet === 'failed'
+              ? 'No model set could be loaded. Showing the built-in statues.'
+              : modelReport(modelSet)}
+        </p>
+      )}
       {promotion && (
         <PromotionPicker
           options={promotion}
