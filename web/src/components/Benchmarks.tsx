@@ -54,12 +54,28 @@ const TABLES: Table[] = [
   },
 ];
 
+TABLES.push({
+  title: 'Are the explanations right?',
+  note: 'Fifty positions with the answers written down by hand. The rules were corrected against the first 39, so the 11 held-out positions are the fairer test. Four faults were found and fixed along the way; the full account is in docs/ANALYSIS_CREDIBILITY.md.',
+  head: ['Measure', 'First 39 positions', '11 held-out positions'],
+  rows: [
+    ['Tactical facts reported that were really there, before the fixes', '41 of 46 (89.1%)', '17 of 18 (94.4%)'],
+    ['The same, after the fixes', '41 of 41 (100%)', '17 of 17 (100%)'],
+    ['Real facts that were found', '41 of 41', '17 of 18'],
+    ['Correct move played at Club level', '20 of 20', '4 of 5'],
+    ['Explanation gave the labelled status', '9 of 9', '3 of 3'],
+    ['“Confirmed” sentences the search line really backs', '13 of 13', '5 of 5'],
+  ],
+});
+
 const LIMITS = [
   'This is a small classical engine. It is far weaker than Stockfish and is not trying to compete with it.',
   'The step from Novice to Club is very large, and there is nothing in between.',
   'On the free hosted site the search is capped at depth 7 and 3 seconds, on a tenth of a processor, so Expert plays much like Club there.',
   'Prolog’s rules read attacked squares, not legal moves, so a “trapped piece” or “pinned defender” is a strong hint, not a proof.',
-  'There is no dedicated tactical puzzle suite yet. Strength was measured by self-play only.',
+  'The explanation benchmark is small and mostly uses sparse positions, so its perfect scores will not hold in crowded middlegames.',
+  'One real pin is still missed: a piece tied to an undefended piece of equal value behind it.',
+  'Strength was measured by self-play. There is no large tactical puzzle suite.',
   'All figures are from one desktop with other programs running.',
 ];
 

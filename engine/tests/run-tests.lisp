@@ -138,7 +138,33 @@
          (exchange "4k3/8/2p5/3q4/4P3/8/8/4K3 w - - 0 1" "e4d5") 800)
   (check "the side to recapture may decline a losing recapture"
          ;; Black's queen is the only defender: retaking would lose it to the rook behind.
-         (exchange "3qk3/8/8/3p4/8/8/3R4/3RK3 w - - 0 1" "d2d5") 100))
+         (exchange "3qk3/8/8/3p4/8/8/3R4/3RK3 w - - 0 1" "d2d5") 100)
+  ;; Added for the credibility audit (milestone 5).
+  (check "rook takes a queen defended by a pawn: wins queen for rook"
+         (exchange "4k3/8/4p3/3q4/8/8/3R4/4K3 w - - 0 1" "d2d5") 400)
+  (check "queen takes a pawn defended by a pawn: loses queen for pawn"
+         (exchange "4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1" "d2d5") -800)
+  (check "bishop takes a defended knight: even, less the 10 a bishop is rated above a knight"
+         ;; A bishop is counted 10 above a knight, so this is "even" within the -50 margin used for bad captures.
+         (exchange "4k3/8/2p5/3n4/4B3/8/8/4K3 w - - 0 1" "e4d5") -10)
+  (check "two attackers against one defender win the pawn"
+         (exchange "4k3/8/4p3/3p4/4P3/2N5/8/4K3 w - - 0 1" "e4d5") 100)
+  (check "a king may not recapture into a second attacker"
+         (exchange "4k3/4p3/8/8/8/8/4R3/4RK2 w - - 0 1" "e2e7") 100)
+  (check "a king recaptures when nothing else attacks the square"
+         (exchange "4k3/4p3/8/8/8/8/4R3/5K2 w - - 0 1" "e2e7") -400)
+  (check "a bishop behind a pawn joins in once the pawn has captured (x-ray on a diagonal)"
+         ;; e4xd5, e6xd5, then the bishop on f3 retakes: pawn for pawn, and a pawn up.
+         (exchange "4k3/8/4p3/3p4/4P3/5B2/8/4K3 w - - 0 1" "e4d5") 100)
+  (check "capturing while promoting counts the new queen"
+         (exchange "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1" "b7a8q") 1300)
+  (check "en passant wins a pawn"
+         (exchange "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1" "e5d6") 100)
+  ;; A known limit, pinned down so it cannot change unnoticed: the exchange
+  ;; count works from attacked squares and does not know the e6 pawn is pinned
+  ;; to its king and so cannot really recapture. The true answer is +300.
+  (check "a pinned defender is still counted as a defender (documented limit)"
+         (exchange "4k3/8/4p3/3n4/8/2N5/8/4RK2 w - - 0 1" "c3d5") 0))
 (check "exchange evaluation leaves the board untouched"
        (let* ((fen "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
               (p (pos-from-fen fen)))

@@ -17,7 +17,10 @@
 
     All of these read attack geometry only. None of them generates moves:
     "where could this piece go" below means "which squares does it attack",
-    so pins and lines opened by the move itself are not accounted for.
+    so lines opened by the move itself are not accounted for. One piece of
+    legality is modelled, because leaving it out produced false reports: a
+    piece pinned to its own king cannot capture off the pin line, so it does
+    not make an enemy piece "hanging" (see can_capture/5).
 */
 
 :- module(tactics,
@@ -55,7 +58,13 @@ pin(Ctx, pin(Kind, PC, PT, PSq, T, Sq, BT, BSq)) :-
     opponent(PC, C),
     T \== king,
     first_on_ray(Assoc, Sq, Dir, BSq, C-BT),
-    pin_kind(Ctx, C, PT, PSq, T, Sq, BT, BSq, Kind).
+    pin_kind(Ctx, C, PT, PSq, T, Sq, BT, BSq, Kind),
+    \+ harmless_pin(Kind, T, Dir).
+
+%   A pawn on a file can still advance along it, so "pinning" it to a piece
+%   behind it costs it nothing. (Pinned to the king it still matters: it may
+%   not capture sideways.)
+harmless_pin(relative, pawn, 0/_).
 
 pin_kind(_, _, _, _, _, _, king, _, absolute) :- !.
 pin_kind(Ctx, C, PT, PSq, T, Sq, BT, BSq, relative) :-
@@ -77,7 +86,9 @@ skewer(Ctx, skewer(PC, PT, PSq, FT, FSq, BT, BSq)) :-
     BT \== king, BT \== pawn,
     value(FT, VF), value(BT, VB), value(PT, VP),
     VF > VB, VF > VP,
-    ( VB > VP ; \+ attacked_by(Ctx, C, BSq) ).
+    ( VB > VP ; \+ attacked_by(Ctx, C, BSq) ),
+    % ...and the piece in front must not simply be able to take the attacker for nothing
+    \+ ( attack(Ctx, C, FT, FSq, PSq), \+ attacked_by(Ctx, PC, PSq) ).
 
 %   One piece attacks two or more enemy pieces that each matter, and cannot
 %   simply be taken for free itself.
@@ -107,17 +118,29 @@ safe_piece(Ctx, C, T, Sq) :-
     \+ ( attack(Ctx, O, AT, _, Sq), value(AT, VA), VA < V ),
     ( \+ attacked_by(Ctx, O, Sq) ; attacked_by(Ctx, C, Sq) ).
 
+%!  can_capture(+Ctx, +Color, -Type, -From, +Sq) is nondet.
+%   Color's piece on From attacks Sq and is not stopped from taking there by
+%   an absolute pin: a piece pinned to its king may only move along the line
+%   of the pin.
+can_capture(Ctx, C, T, From, Sq) :-
+    attack(Ctx, C, T, From, Sq),
+    \+ pinned_away_from(Ctx, From, Sq).
+
+pinned_away_from(Ctx, From, Sq) :-
+    pin(Ctx, pin(absolute, _, _, PSq, _, From, _, _)),
+    \+ collinear(PSq, From, Sq).
+
 is_hanging(Ctx, C, T, Sq) :-
     T \== king,
     opponent(C, O),
-    attacked_by(Ctx, O, Sq),
-    \+ attacked_by(Ctx, C, Sq).
+    \+ attacked_by(Ctx, C, Sq),
+    once(can_capture(Ctx, O, _, _, Sq)).
 
 hanging(Ctx, hanging(C, T, Sq, Attackers)) :-
     piece(Ctx, C, T, Sq),
     is_hanging(Ctx, C, T, Sq),
     opponent(C, O),
-    attackers(Ctx, O, Sq, Attackers).
+    findall(AT-ASq, can_capture(Ctx, O, AT, ASq, Sq), Attackers).
 
 %   Defended, but attacked by something cheaper: it still has to move.
 is_threatened(Ctx, C, T, Sq) :- threatened_by(Ctx, C, T, Sq, _, _), !.
@@ -179,7 +202,16 @@ discovered_attack(Ctx, discovered_attack(C, MT, MSq, ST, SSq, TT, TSq)) :-
     \+ pawn_stays_on_line(MT, Dir),
     first_on_ray(Assoc, MSq, Dir, TSq, O-TT),
     opponent(C, O),
-    discovered_target(Ctx, ST, O, TT, TSq).
+    discovered_target(Ctx, ST, O, TT, TSq),
+    \+ target_strikes_first(Ctx, C, ST, SSq, TT, Dir).
+
+%   If the piece behind the mask is itself a line piece on this line, opening
+%   the line lets it take the slider. Where that loses material the masking
+%   piece is pinned, not poised: no discovered attack.
+target_strikes_first(Ctx, C, ST, SSq, TT, Dir) :-
+    once(slider_dir(TT, Dir)),
+    value(ST, VS), value(TT, VT),
+    ( VS > VT ; \+ attacked_by(Ctx, C, SSq) ).
 
 %   A pawn moving straight ahead never leaves its own file.
 pawn_stays_on_line(pawn, 0/_).

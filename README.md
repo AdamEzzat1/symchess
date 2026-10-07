@@ -126,6 +126,15 @@ swipl -g run_tests -t halt knowledge/tests/test_knowledge.pl
 npm --prefix web test
 ```
 
+Are the explanations right? Fifty positions with hand-written answers check
+the tactical facts Prolog reports, the move the search plays, and the status
+the explanation gives each idea, each scored separately. The method, results
+and known misses are in [docs/ANALYSIS_CREDIBILITY.md](docs/ANALYSIS_CREDIBILITY.md).
+
+```bash
+sbcl --script engine/tests/credibility.lisp
+```
+
 Is a change to the engine an improvement? Play the current engine against the
 first one (about five minutes; see the file for other match-ups):
 

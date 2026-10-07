@@ -368,3 +368,66 @@ The criterion was "keep if nodes fall by 5%, remove the ordering if under 2%". N
 **Not built from the plan's list.** "Search beside reasoning" as a single linked view, and puzzle mode. The 3D board still has no fact overlays other than the best-move arrow, no coordinates and no keyboard play; the flat board remains the place for analysis. The 3D render loop still runs continuously.
 
 **Small things found on the way.** The tour's fifth step is honest about how small the Novice difference can look: Novice often plays the same move as Club, and only sometimes a slightly worse one, which is what the level is designed to do.
+
+## Milestone 5: Analysis credibility
+
+*Built. The plan below is kept as written; the results follow it and are given in full in `docs/ANALYSIS_CREDIBILITY.md`.*
+
+**Purpose.** Milestones 1 to 4 made SymChess stronger and easier to show. This one makes its explanations checkable. The claim to earn is: "SymChess measures how often its own explanations are right, and publishes the misses." No new surface area unless a measurement needs it.
+
+**Five things that must not be blurred**, each reported separately:
+
+| Measure | Question | Owner |
+| --- | --- | --- |
+| Move accuracy | Did the search choose the labelled best move? | Lisp |
+| Motif accuracy | Did Prolog report the motif that is really in the position, and nothing that is not? | Prolog |
+| Explanation accuracy | Did the explanation connect the right motif to the move, with the right status? | Lisp, from search and Prolog data |
+| Search strength | Does the engine win games? (Already measured by self-play.) | Lisp |
+| Presentation | Does the screen show only what the engine sent? (Already covered by the stale-state tests.) | React |
+
+**Where things stand before starting** *(read from the code, not yet re-tested)*:
+
+- SEE exists and has tests for an x-ray attacker and for leaving the board unchanged. It has no named tests for an equal exchange, a protected high-value target, or a pinned defender. SEE does not know about pins, which is normal for an engine of this size and should be documented, not fixed.
+- The explanation already tags each Prolog sentence as confirmed, unconfirmed, overruled or heuristic. Those are the brief's "search-confirmed", "unresolved", "search-overruled" and "detected". What is missing is a test of whether the tags are right.
+- A fact on the board only inherits a search verdict in one case (a hanging piece that the line captures). Every other fact is shown as "static". That is honest but thin.
+- Every Prolog rule from milestone 3 has a positive and a negative test. The older rules (fork, skewer, overloaded, threatened) have fewer negatives.
+- A suspect already in view: in the tour's fork position Prolog reports a "discovered attack" on a knight that is defended. The fact is true as worded but points at nothing winnable. This is the kind of impressive-but-empty output the milestone should count.
+
+**Scope.**
+
+A. *SEE audit.* Add the missing exchange tests. Change SEE only if a test fails. Write down what it ignores (pins, promotions if so).
+
+B. *Motif hardening.* Audit discovered attack, hanging, threatened, overloaded, pinned defender, fork and skewer. Add negatives for the older rules. Decide per rule whether it should require a target worth winning, and say so in the fact's wording.
+
+C. *Labelled positions.* One file, about 40 to 60 positions, in nine categories: pins, forks, skewers, discovered attacks, overloaded defenders, hanging pieces, losing captures, quiet tactical moves, defensive moves. Each entry: FEN, motifs that must be reported, motifs that must not, optional best move, optional expected status for the explanation. Every label is checked by search at a higher depth or by hand before it goes in; a label that is only plausible is left out.
+
+D. *Runner.* A Lisp script in the style of `bench.lisp` that runs the set and prints, per motif and overall: true positives, false positives, false negatives, precision and recall; best move found or not with depth, time and nodes; and whether the explanation's status matched the label. It must run, and say so plainly, when Prolog is unavailable.
+
+E. *Report.* `docs/ANALYSIS_CREDIBILITY.md` with the method, the numbers, the failures listed by position, and what was left unsolved. The measured-results page gains one table. No other interface work.
+
+**Claims fixed in advance**, so the results cannot be fitted afterwards:
+
+1. Prolog motif precision of at least 90% and recall of at least 80% on the labelled set. If a motif falls short, either the rule is fixed or the shortfall is published.
+2. No explanation says "confirmed" unless the search's line actually captures or delivers what the motif names. Target: zero violations.
+3. Club level finds the labelled best move in at least 80% of the tactical positions within its normal limits.
+
+The thresholds are a first guess *(estimate)*; the point is that they are written down before the run.
+
+**Risks.** The labelled set is small, so percentages will move a lot with each position; counts are reported beside every percentage. Labels written by the same hand as the rules can share the same blind spots; the forbidden-motif field and the search check are the guard against that. Tightening a rule to remove false positives can remove true ones; the runner shows both sides of that trade.
+
+**Not in this milestone.** "Why not this move?" counterfactuals and a reasoning graph. They come after, and rest on this.
+
+**Done when.** SEE has the added tests or a note that it already passed them; the seven audited rules each have positive and negative tests; the labelled set and runner exist and run in the test routine; the report states move, motif and explanation accuracy separately, with failures named; and normal play still works with Prolog switched off.
+
+### Milestone 5: results
+
+Full account: `docs/ANALYSIS_CREDIBILITY.md`. In brief, all *(measured)*:
+
+- **SEE.** Ten exchange tests added (equal trades, a guarded queen, two attackers against one defender, a king that may not recapture, a diagonal x-ray, promotion, en passant). All passed without changing the code. One limit is now fixed in a test: a pinned defender is counted as a defender.
+- **Rules.** Four faults found by the benchmark and fixed in Prolog, each with a negative test: a pinned piece counted as an attacker; a pinned piece reported as a discovered attack; a pawn "pinned" on its own file; a skewer whose front piece could take the attacker. Negative tests were also added for fork, skewer, overloaded and threatened. Prolog tests went from 67 to 78.
+- **Benchmark.** 50 labelled positions in ten groups and a runner that reports motif, move and explanation accuracy separately, and runs without Prolog.
+- **Against the claims set beforehand.** Precision started at 89.1% on the development set, under the 90% bar, and is 100% after the fixes; on 11 held-out positions it is 100% with 94.4% recall (one real pin missed, deliberately left). No "confirmed" sentence failed an independent check, 18 of 18. Move accuracy 20 of 20 and 4 of 5.
+- **Corrections to my own labels.** Six best-move labels and the fact labels of four positions were wrong and were corrected after the engine or a deeper search disagreed. This is reported in the credibility document.
+- **Cost.** A Prolog analysis takes about 25 ms after the rule changes, against about 22 ms before, on the same machine in a different session.
+
+**Not done.** The fact cards in the interface still carry a search verdict in only one case (a hanging piece the line captures). No fix for the pin against an equal undefended piece. No crowded middlegame positions in the labelled set.

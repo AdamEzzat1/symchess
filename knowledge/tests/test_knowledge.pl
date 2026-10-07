@@ -130,9 +130,14 @@ test(no_fork_when_forker_can_be_taken_for_free) :-
     \+ fork(Ctx, fork(white, knight, _, _)).
 
 test(skewer, [nondet]) :-
-    ctx("7k/8/5r2/8/3q4/8/1B6/4K3 w - - 0 1", Ctx),
+    ctx("7k/8/5r2/8/3q4/8/1B6/2K5 w - - 0 1", Ctx),
     sq(b2, B2), sq(d4, D4), sq(f6, F6),
     skewer(Ctx, skewer(white, bishop, B2, queen, D4, rook, F6)).
+
+test(no_skewer_when_the_front_piece_can_take_the_attacker_for_nothing) :-
+    % the same line, but nothing guards the bishop: the queen just takes it
+    ctx("7k/8/5r2/8/3q4/8/1B6/4K3 w - - 0 1", Ctx),
+    \+ skewer(Ctx, _).
 
 test(hanging_piece, [nondet]) :-
     ctx("4k3/8/8/4n3/8/8/4R3/4K3 w - - 0 1", Ctx),
@@ -144,6 +149,54 @@ test(defended_piece_is_not_hanging) :-
     \+ hanging(Ctx, hanging(black, knight, _, _)),
     % ...and a rook attacking a defended knight is not a "threat" either
     \+ threatened(Ctx, threatened(black, knight, _, _, _)).
+
+test(no_hanging_when_the_only_attacker_is_pinned_to_its_king) :-
+    % the d4 knight "attacks" e6 but is pinned by the b6 bishop: Nxe6 is illegal
+    ctx("7k/8/1b2r3/8/3N4/8/8/6K1 w - - 0 1", Ctx),
+    \+ hanging(Ctx, hanging(black, rook, _, _)).
+
+test(pinned_piece_may_still_capture_along_the_pin_line, [nondet]) :-
+    % the d1 rook is pinned along the rank and can take the piece that pins it
+    ctx("6k1/8/8/8/8/8/8/r2R2K1 w - - 0 1", Ctx),
+    sq(a1, A1),
+    hanging(Ctx, hanging(black, rook, A1, [rook-_])).
+
+test(capturing_with_a_pinned_piece_is_not_capturing_a_hanging_piece) :-
+    % the same pinned knight: the move generator is not asked, so no motif
+    ctx("7k/8/1b2r3/8/3N4/8/8/6K1 w - - 0 1", Ctx),
+    sq(e6, E6),
+    \+ is_hanging(Ctx, black, rook, E6).
+
+test(no_relative_pin_of_a_pawn_along_its_own_file) :-
+    % the h7 pawn stands between queen and rook, but pushing it keeps the file shut
+    ctx("k6r/7p/8/7Q/8/8/8/4K3 w - - 0 1", Ctx),
+    \+ pin(Ctx, _).
+
+test(pawn_pinned_to_its_king_on_a_file_is_still_a_pin, [nondet]) :-
+    % it may not capture sideways
+    ctx("4k3/8/4p3/3n4/8/2N5/8/4RK2 w - - 0 1", Ctx),
+    sq(e6, E6),
+    pin(Ctx, pin(absolute, white, rook, _, pawn, E6, king, _)).
+
+test(no_skewer_when_the_piece_behind_is_guarded_and_no_dearer) :-
+    % if the queen steps aside the rooks are merely exchanged
+    ctx("4rk2/8/8/4q3/8/8/8/4RK2 w - - 0 1", Ctx),
+    \+ skewer(Ctx, _).
+
+test(no_fork_on_two_guarded_pieces_worth_less_than_the_forker) :-
+    % the queen attacks both knights, but each is defended by a pawn
+    ctx("4k3/2p1p3/1n3n2/8/3Q4/8/8/4K3 w - - 0 1", Ctx),
+    \+ fork(Ctx, _).
+
+test(no_overload_when_a_second_piece_shares_the_work) :-
+    % the king also guards f7, so the d7 rook has only one job that is its alone
+    ctx("6k1/1n1r1n2/8/3B4/8/8/8/4KR2 w - - 0 1", Ctx),
+    \+ overloaded(Ctx, _).
+
+test(not_threatened_by_an_equal_piece) :-
+    % rook against defended rook is an offer to exchange, not a threat
+    ctx("3rk3/8/8/8/8/8/8/3RK3 w - - 0 1", Ctx),
+    \+ threatened(Ctx, _).
 
 test(threatened_by_cheaper_piece, [nondet]) :-
     ctx("4k3/8/8/2p5/3Q4/2P5/8/4K3 w - - 0 1", Ctx),
@@ -173,13 +226,18 @@ test(no_battery_without_a_target) :-
     \+ battery(Ctx, _).
 
 test(discovered_attack_behind_a_knight, [nondet]) :-
-    ctx("4k3/4q3/8/8/4N3/8/8/4R1K1 w - - 0 1", Ctx),
+    ctx("4k3/4q3/8/8/4N3/8/8/4RK2 w - - 0 1", Ctx),
     sq(e4, E4), sq(e1, E1), sq(e7, E7),
     discovered_attack(Ctx, discovered_attack(white, knight, E4, rook, E1, queen, E7)).
 
 test(no_discovered_attack_behind_a_pawn_on_its_file) :-
     % the pawn can only go forward, which keeps the file closed
     ctx("4k3/4q3/8/8/4P3/8/8/4R1K1 w - - 0 1", Ctx),
+    \+ discovered_attack(Ctx, _).
+
+test(no_discovered_attack_when_moving_the_mask_loses_the_piece_behind_it) :-
+    % the f6 knight masks its queen from the g5 bishop: that knight is pinned
+    ctx("3qk3/8/5n2/6B1/8/8/8/4K3 w - - 0 1", Ctx),
     \+ discovered_attack(Ctx, _).
 
 test(pinned_defender, [nondet]) :-
@@ -435,7 +493,7 @@ test(inspect_empty_square) :-
 %   to draw, or the whole reply for that position would fail.
 test(every_new_kind_of_fact_renders) :-
     Samples = [ battery-"3r2k1/5ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1",
-                discovered_attack-"4k3/4q3/8/8/4N3/8/8/4R1K1 w - - 0 1",
+                discovered_attack-"4k3/4q3/8/8/4N3/8/8/4RK2 w - - 0 1",
                 pinned_defender-"4kr2/8/8/b7/8/5B2/3N4/4K3 b - - 0 1",
                 trapped-"N7/pk6/8/8/8/8/8/4K3 w - - 0 1",
                 weak_back_rank-"6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
