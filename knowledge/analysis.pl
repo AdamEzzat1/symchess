@@ -8,7 +8,7 @@
     Replies are dicts ready for json_write_dict/3.
 */
 
-:- module(analysis, [ analyze/3, inspect/3, root_facts/2 ]).
+:- module(analysis, [ analyze/3, inspect/3, root_facts/2, root_facts/3 ]).
 
 :- use_module(library(lists)).
 :- use_module(library(apply)).
@@ -48,9 +48,37 @@ root_fact(Ctx, F) :- pawn_majority(Ctx, F).
 %!  root_facts(+Ctx, -IdFacts) is det.
 %   IdFacts = [f1-Fact, f2-Fact, ...]; ids are stable within one reply.
 root_facts(Ctx, IdFacts) :-
-    findall(F, root_fact(Ctx, F), Facts0),
+    root_facts(Ctx, [], IdFacts).
+
+%!  root_facts(+Ctx, +Moves, -IdFacts) is det.
+%   As above, minus the facts that the legal moves Lisp supplied show to be
+%   false (see refuted/3).
+root_facts(Ctx, Moves, IdFacts) :-
+    findall(F, ( root_fact(Ctx, F), \+ refuted(Ctx, Moves, F) ), Facts0),
     list_to_set(Facts0, Facts),
     number_facts(Facts, 1, IdFacts).
+
+%!  refuted(+Ctx, +Moves, +Fact) is semidet.
+%   The rules read lines of attack. One conclusion they draw is really about
+%   moves: "this piece is pinned to a piece of its own value, because if it
+%   moves the one behind is lost". That is false if the piece in front has a
+%   move that leaves the line and guards its partner from where it lands.
+%   Prolog does not generate moves, so it checks this only against moves it
+%   was given: Lisp sends every legal move of the side to move with the
+%   position it leads to. So the check is made when the pinned side is to
+%   move, which is when the pin constrains anything, and not otherwise.
+refuted(Ctx, Moves, pin(relative, PC, _, PSq, T, Sq, BT, BSq)) :-
+    value(T, V), value(BT, V),
+    opponent(PC, C),
+    ctx_side(Ctx, C),
+    sq_atom(Sq, From),
+    member(m(Uci, AfterPos), Moves),
+    sub_atom(Uci, 0, 2, _, From),
+    build_ctx(AfterPos, After),
+    % the line is open now, the partner is still there, and it is guarded
+    attack(After, PC, _, PSq, BSq),
+    at(After, BSq, C, BT),
+    attacked_by(After, C, BSq), !.
 
 number_facts([], _, []).
 number_facts([F|Fs], N, [Id-F|Rest]) :-
@@ -60,7 +88,7 @@ number_facts([F|Fs], N, [Id-F|Rest]) :-
 
 analyze(Pos, Moves, _{facts:FactDicts, plans:PlanDicts, moves:MoveDicts}) :-
     build_ctx(Pos, Root),
-    root_facts(Root, IdFacts),
+    root_facts(Root, Moves, IdFacts),
     maplist(fact_dict, IdFacts, FactDicts),
     plans(Root, IdFacts, Plans),
     number_plans(Plans, 1, PlanDicts),

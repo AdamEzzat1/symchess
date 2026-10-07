@@ -620,6 +620,22 @@ Each `explanation` and `counterfactual` also carries `agreement`: the engine's
 count of Prolog's sentences it confirmed, left unconfirmed, overruled or could
 not test, and whether Prolog's top-ranked move was the search's move.
 
+**Where a rule needs to know about moves.** Prolog's rules read lines of attack
+and do not generate moves. One conclusion is really about moves: a piece
+"pinned" to a partner of its own value is not pinned if it can step aside and
+guard that partner. Lisp already sends every legal move of the side to move
+with the position it leads to (that is how move motifs are judged), so
+`analysis:refuted/3` checks the pin against those positions and drops it if one
+of them leaves the partner attacked and guarded. Legality stays with Lisp; the
+judgement stays with Prolog. The check is made only for the side to move,
+because those are the only moves supplied.
+
+**How a rating is worded.** A rating is one search's opinion at one depth, and
+the engine words it that way at the source: `depth-caution` produces the
+sentence that limits what a rating can be taken to mean, and it travels with
+the `counterfactual` message as `caution` and inside a review's lines. The
+frontend shows it; it does not decide when to.
+
 **How a measurement is recorded.** `engine/src/experiment.lisp` holds the named
 configurations (`features-for` turns a name into exact switches), three
 measures (work to a fixed depth, labelled moves played right, a self-play

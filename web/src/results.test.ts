@@ -99,6 +99,10 @@ describe('where a figure came from', () => {
     expect(provenanceLine({ ...run, commit: null })).toContain('no commit recorded');
   });
 
+  it('adds a note about the conditions when the run recorded one', () => {
+    expect(provenanceLine({ ...run, note: 'nothing else running' })).toMatch(/a machine · nothing else running$/);
+  });
+
   it('refuses a file with no run, or a fingerprint that is not one', () => {
     expect(looksRecorded(search)).toBe(true);
     expect(looksRecorded({})).toBe(false);
@@ -112,11 +116,14 @@ describe('the files in results/', () => {
     expect(looksRecorded(RECORDED.search)).toBe(true);
     expect(looksRecorded(RECORDED.matches)).toBe(true);
     expect(looksRecorded(RECORDED.credibility)).toBe(true);
+    expect(looksRecorded(RECORDED.ladder)).toBe(true);
   });
 
   it('render as four tables with a row for every configuration, match and measure', () => {
     const tables = recordedTables();
-    expect(tables).toHaveLength(4);
+    expect(tables).toHaveLength(5);
+    expect(tables[3]!.rows).toHaveLength(RECORDED.ladder.rows.length);
+    expect(tables[3]!.title).toContain('levels');
     expect(tables[0]!.rows).toHaveLength(RECORDED.search.configurations.length);
     expect(tables[1]!.rows).toHaveLength(RECORDED.search.configurations.length);
     expect(tables[2]!.rows).toHaveLength(RECORDED.matches.rows.length);
@@ -134,7 +141,9 @@ describe('the files in results/', () => {
   });
 
   it('were all produced by the same sources', () => {
-    const digests = new Set([RECORDED.search, RECORDED.matches, RECORDED.credibility].map((f) => f.run.sourceDigest));
+    const digests = new Set(
+      [RECORDED.search, RECORDED.matches, RECORDED.ladder, RECORDED.credibility].map((f) => f.run.sourceDigest),
+    );
     expect(digests.size).toBe(1);
   });
 });

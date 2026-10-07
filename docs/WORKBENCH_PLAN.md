@@ -351,3 +351,31 @@ The one fact reported that is not there is the case written to show the pin rule
 - The runs were recorded from a working tree with uncommitted changes, and the files say so. The source fingerprint is what identifies them.
 - Timings in `search.json` are one run on one machine. The node counts are exact and repeatable.
 - The crowded positions are five opening positions. That is a start on the benchmark's weakest side, not an answer to it.
+
+## 12. After milestone 9: the limitations pass
+
+The limits recorded in sections 8 to 11 and in `NEXT_STAGE.md` were gone through one by one: researched, triaged, and either fixed, measured, or written down as a boundary. The register is `docs/LIMITATIONS.md`; what was read is in `docs/RESEARCH_NOTES.md`.
+
+**Fixed, each with a test.**
+
+- Recorded results now match the sources (sources `69a2989a`, recorded 2026-10-07), and `experiment.lisp verify` checks it.
+- Ratings are worded as what a depth-N search prefers, with a caution, in the comparison, the review and the badges.
+- A pin to a piece of equal value is checked against the legal moves Lisp supplies.
+- The "why not?" fault of milestone 7 has an end-to-end test with Prolog running.
+- A tactical regression suite runs inside the engine tests.
+- The search scores a dead-drawn ending as a draw.
+- A fourth level, Casual, with a recorded ladder.
+- UCI time per move uses the increment and the moves left.
+- The 3D board stops drawing when nothing is moving.
+- Screenshots of six views, from a script that fails if a view is empty.
+
+**Measured.** Review speed, locally and on the free host. The ladder between levels:
+
+| Match | Games | Won | Drawn | Lost | Points |
+| --- | --- | --- | --- | --- | --- |
+| casual against novice | 24 | 24 | 0 | 0 | 100.0% |
+| club against casual | 24 | 23 | 0 | 1 | 95.8% |
+| club against novice | 24 | 24 | 0 | 0 | 100.0% |
+| expert against club | 24 | 20 | 3 | 1 | 89.6% |
+
+**Left open on purpose.** More labelled positions, an outside-engine match, and a sequential test for the single features. Each is explained in the register.

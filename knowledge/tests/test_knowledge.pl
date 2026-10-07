@@ -570,6 +570,43 @@ test(unstoppable_pawn_plan_comes_before_the_generic_passed_pawn_plan) :-
     Reply.plans = [First|_],
     First.kind == queen_the_pawn.
 
+%   A pin to a piece of equal value, checked against the moves Lisp supplies.
+has_pin(Reply) :- member(F, Reply.facts), get_dict(kind, F, pin), !.
+
+test(an_equal_value_pin_is_dropped_when_a_supplied_move_guards_the_partner) :-
+    % the bishop on e4 can step back to d3 and guard the bishop on e2
+    fen_pos("4q1k1/8/8/8/4B3/8/4B3/6K1 w - - 0 1", Pos),
+    fen_pos("4q1k1/8/8/8/8/3B4/4B3/6K1 b - - 0 1", AfterBd3),
+    analyze(Pos, [m(e4d3, AfterBd3)], Reply),
+    \+ has_pin(Reply).
+
+test(it_is_kept_when_no_supplied_move_guards_the_partner) :-
+    % the knight on c3 cannot reach a square that guards the bishop on a1
+    fen_pos("7k/6q1/8/8/8/2N5/8/B5K1 w - - 0 1", Pos),
+    fen_pos("7k/6q1/8/8/4N3/8/8/B5K1 b - - 0 1", AfterNe4),
+    fen_pos("7k/6q1/8/8/8/2N5/7K/B7 b - - 0 1", AfterKh2),
+    analyze(Pos, [m(c3e4, AfterNe4), m(g1h2, AfterKh2)], Reply),
+    has_pin(Reply).
+
+test(it_is_kept_when_no_moves_are_supplied_at_all) :-
+    % nothing to check it against: the reading of the lines stands
+    fen_pos("4q1k1/8/8/8/4B3/8/4B3/6K1 w - - 0 1", Pos),
+    analyze(Pos, [], Reply),
+    has_pin(Reply).
+
+test(it_is_not_checked_when_the_pinned_side_is_not_to_move) :-
+    fen_pos("4q1k1/8/8/8/4B3/8/4B3/6K1 b - - 0 1", Pos),
+    fen_pos("6k1/4q3/8/8/4B3/8/4B3/6K1 w - - 0 1", AfterQe7),
+    analyze(Pos, [m(e8e7, AfterQe7)], Reply),
+    has_pin(Reply).
+
+test(a_pin_to_a_more_valuable_piece_is_never_dropped_this_way, [nondet]) :-
+    % the knight can move and leave the queen guarded, and the queen is still lost for a bishop
+    fen_pos("r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1", Pos),
+    fen_pos("r1bqkb1r/ppp1nppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1", After),
+    analyze(Pos, [m(g8e7, After)], Reply),
+    has_pin(Reply).
+
 :- end_tests(analysis).
 
 % ------------------------------------------------------------------- rules

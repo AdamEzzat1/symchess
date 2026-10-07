@@ -24,25 +24,6 @@ const TABLES: Table[] = [
     ],
   },
   {
-    title: 'Speed',
-    note: 'Seven test positions. The newer engine reaches the same depth sooner by searching fewer positions, but looks at each one more slowly because its evaluation does more work.',
-    head: ['Measure', 'First engine', 'Current engine'],
-    rows: [
-      ['Time to depth 7', '8.8 s', '2.7 s'],
-      ['Positions per second', 'about 500,000', '150,000 to 200,000'],
-    ],
-  },
-  {
-    title: 'Are the difficulty levels really different?',
-    note: 'Twelve openings with both colours. Expert was given 300 ms per move here, a tenth of its real allowance.',
-    head: ['Match', 'Games', 'Won', 'Drawn', 'Lost', 'Points'],
-    rows: [
-      ['Club against Novice', '24', '24', '0', '0', '100%'],
-      ['Expert against Novice', '24', '24', '0', '0', '100%'],
-      ['Expert against Club', '48', '25', '16', '7', '68.8%'],
-    ],
-  },
-  {
     title: 'Does Prolog make the search better?',
     note: 'No. Prolog’s ranking of the moves was tried as a way to order the search. It saved no work and, once the time Prolog takes was counted, play got weaker. So the search no longer uses it; Prolog explains, warns and plans instead.',
     head: ['Measure', 'Result'],
@@ -65,12 +46,13 @@ TABLES.push({
 
 const LIMITS = [
   'This is a small classical engine. It is far weaker than Stockfish and is not trying to compete with it.',
-  'The step from Novice to Club is very large, and there is nothing in between.',
+  'The steps between the four levels are steep: Casual won every game against Novice and Club won 23 of 24 against Casual.',
   'On the free hosted site the search is capped at depth 7 and 3 seconds, on a tenth of a processor, so Expert plays much like Club there.',
   'Prolog’s rules read attacked squares, not legal moves, so a “trapped piece” or “pinned defender” is a strong hint, not a proof.',
   'The explanation benchmark is small: 66 positions, five of them crowded. Its scores will not hold across real middlegames.',
-  'A pin is read from lines, not moves. A piece that could step aside and guard the piece behind it is still reported as pinned; the second held-out set has one such case.',
-  'Move ratings are a shallow search’s opinion. In the sample game it marks Morphy’s winning sacrifice 10.Nxb5 as a missed chance.',
+  'Most tactical rules read lines of attack, not legal moves. A pin to an equal piece is checked against the legal moves; “trapped” and “pinned defender” are not.',
+  'A move rating is what a depth-5 or depth-6 search prefers, and is worded that way. In the sample game Morphy’s winning sacrifice 10.Nxb5 is rated lower than a quiet move whenever the search is cut a ply short.',
+  'A game review gives each search a quarter of a second. On a few positions that stops it early, so two reviews of the same game can rate those moves differently. Each rating states its depth.',
   'Prolog’s own ranking of moves, made without searching, matches the search about half the time. Where they differed on the first 39 positions the search’s move was the labelled one 6 times of 6 and Prolog’s once.',
   'Strength was measured by self-play only. No outside engine was available to play against, so there is no outside reference for strength, and no large tactical puzzle suite.',
   'All figures are from one desktop with other programs running.',
@@ -94,7 +76,7 @@ export function Benchmarks({ onClose }: { onClose: () => void }) {
           </button>
         </header>
         <p className="quiet">
-          What was measured, how, and what it showed, including what did not go the project’s way. The first four
+          What was measured, how, and what it showed, including what did not go the project’s way. The first five
           tables are read from files the measuring scripts wrote; under each is the run it came from and the command
           that repeats it.
         </p>
@@ -140,7 +122,7 @@ export function Benchmarks({ onClose }: { onClose: () => void }) {
           <h3>Earlier runs</h3>
           <p className="quiet">
             The tables below were copied by hand from the project’s notes before runs were recorded to files. They
-            used more games and longer time limits than the recorded matches above, and cannot be traced to a commit.
+            used more games or longer time limits than the recorded matches above, and cannot be traced to a commit.
           </p>
         </section>
         {TABLES.map((table) => (

@@ -28,6 +28,7 @@ interface PlayerBarProps {
 /** Names for the engine's levels. What a level does is decided by the engine. */
 export const LEVELS: { id: Level; label: string; blurb: string }[] = [
   { id: 'novice', label: 'Novice', blurb: 'Looks a short way ahead and does not always find the best move. Never gives a piece away for nothing.' },
+  { id: 'casual', label: 'Casual', blurb: 'Judges positions properly but looks only a few moves ahead, and sometimes settles for a move that is nearly as good.' },
   { id: 'club', label: 'Club', blurb: 'A steady opponent: punishes loose pieces, can miss long plans.' },
   { id: 'expert', label: 'Expert', blurb: 'Plays to win: searches as deep as its time allows.' },
 ];
@@ -313,6 +314,12 @@ export function Controls({ game, disabled, onFlip, send, maxDepth, maxMoveTimeMs
         </select>
       </label>
       <p className="field-hint">{LEVELS.find((l) => l.id === (settings.level ?? 'club'))?.blurb}</p>
+      {/* What the level comes to on this server, in the engine's own numbers. */}
+      <p className="field-hint">
+        Here it searches to depth {settings.depth} or for {(settings.moveTimeMs / 1000).toFixed(1)} s a move, whichever
+        comes first.
+        {maxDepth < 30 && ` This server stops every level at depth ${maxDepth} and ${(maxMoveTimeMs / 1000).toFixed(0)} s, so Expert plays much like Club here.`}
+      </p>
       <label className="field">
         <span>Depth</span>
         <select

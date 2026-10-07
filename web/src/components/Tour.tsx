@@ -3,6 +3,7 @@ import type { Level } from '../protocol';
 
 const LEVELS: { id: Level; label: string }[] = [
   { id: 'novice', label: 'Novice' },
+  { id: 'casual', label: 'Casual' },
   { id: 'club', label: 'Club' },
   { id: 'expert', label: 'Expert' },
 ];

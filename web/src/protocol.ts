@@ -37,7 +37,7 @@ export type GameStatus =
 export type Mode = 'play' | 'analysis';
 
 /** How strongly the engine plays its own moves. The engine owns what each level means. */
-export type Level = 'novice' | 'club' | 'expert';
+export type Level = 'novice' | 'casual' | 'club' | 'expert';
 
 export interface GameState {
   type: 'game_state';
@@ -347,6 +347,8 @@ export type ServerMessage =
       bestFactsAdded: Fact[];
       bestFactsRemoved: Fact[];
       summary: string;
+      /** What the rating can and cannot be taken to mean. Null where it says nothing against the move. */
+      caution?: string | null;
       items: ExplanationItem[];
       agreement?: Agreement;
       viz: Viz[];
@@ -618,6 +620,7 @@ const validators: Record<ServerMessageType, Check> = {
     bestFactsAdded: arr(fact),
     bestFactsRemoved: arr(fact),
     summary: str,
+    caution: optional(nullable(str)),
     items: arr(explanationItem),
     agreement,
     viz: arr(viz),

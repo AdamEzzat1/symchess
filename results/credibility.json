@@ -1,13 +1,15 @@
 {
   "run": {
-    "date": "2026-10-07 15:16 UTC",
+    "date": "2026-10-07 18:18 UTC",
     "command": "sbcl --script engine/tests/credibility.lisp",
-    "engine": "symchess 0.6.0",
+    "engine": "symchess 0.7.0",
     "lisp": "SBCL 2.6.9",
     "prolog": "SWI-Prolog 10.0.2",
     "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
-    "sourceDigest": "409793dd18b6279520bbf68c0a80bb03",
-    "commit": "f060ac8",
+    "processors": 8,
+    "note": null,
+    "sourceDigest": "69a2989a53a7c2260bd778cfa9f7a02b",
+    "commit": "08dcf22",
     "uncommittedChanges": true
   },
   "what": "Labelled positions: does Prolog report the tactical facts that are really there, does the search play a right move, and does the explanation give each idea the right status?",
@@ -123,9 +125,9 @@
       "prolog": true,
       "motifs": {
         "found": 14,
-        "extra": 1,
+        "extra": 0,
         "missed": 0,
-        "reportedButNotThere": ["new-bishop-that-can-step-back-and-guard: pin on e8"],
+        "reportedButNotThere": [],
         "thereButNotReported": []
       },
       "moves": {

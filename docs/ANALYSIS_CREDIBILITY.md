@@ -134,7 +134,7 @@ Current figures, from `results/credibility.json`:
 | Sentences that can be followed back | 266 of 266 | 80 of 80 | 147 of 147 |
 | Prolog's top-ranked move was the search's | 10 of 20 | 2 of 5 | 7 of 11 |
 
-The extra fact in the last column is deliberate: a bishop in front of its unguarded partner, which could step aside and guard it. The rule reads lines and not moves, so it calls that a pin.
+When this was first measured the last column showed one fact that was not there: a bishop in front of its unguarded partner, which could step aside and guard it. The rule read lines and not moves, so it called that a pin. The limitations pass that followed fixed it by checking such a pin against the legal moves Lisp supplies, and the table above is from after that fix. The set has now been used to correct the rules twice and is no longer a held-out result; see `LIMITATIONS.md`.
 
 ### Without Prolog
 

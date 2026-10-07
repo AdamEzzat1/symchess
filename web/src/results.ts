@@ -4,6 +4,7 @@
 // arithmetic on two recorded counts and say so.
 
 import credibilityFile from '../../results/credibility.json';
+import ladderFile from '../../results/ladder.json';
 import matchesFile from '../../results/matches.json';
 import searchFile from '../../results/search.json';
 
@@ -15,6 +16,9 @@ export interface Run {
   lisp: string;
   prolog: string | null;
   machine: string;
+  processors?: number | null;
+  /** Anything the person running it put on record about the conditions. */
+  note?: string | null;
   /** Fingerprint of the engine and rule sources the run used. */
   sourceDigest: string;
   commit: string | null;
@@ -114,7 +118,8 @@ export function provenanceLine(run: Run): string {
     run.commit === null
       ? 'no commit recorded'
       : `commit ${run.commit}${run.uncommittedChanges ? ' with uncommitted changes' : ''}`;
-  return `Recorded ${run.date} · ${commit} · sources ${run.sourceDigest.slice(0, 8)} · ${run.engine}, ${run.lisp} · ${run.machine}`;
+  const note = run.note ? ` · ${run.note}` : '';
+  return `Recorded ${run.date} · ${commit} · sources ${run.sourceDigest.slice(0, 8)} · ${run.engine}, ${run.lisp} · ${run.machine}${note}`;
 }
 
 const describe = (configurations: Configuration[], name: string) =>
@@ -154,11 +159,11 @@ export function movesTable(data: SearchResults): RecordedTable {
   };
 }
 
-export function matchTable(data: MatchResults): RecordedTable {
+export function matchTable(data: MatchResults, title = 'Does it win more games?', timed = true): RecordedTable {
   const ms = data.rows[0]?.msPerMove;
   return {
-    title: 'Does it win more games?',
-    note: `${data.what}${ms === undefined ? '' : ` ${ms} ms per move.`} A match here is ${data.openings.length * 2} games, which is few: a result within about twenty points of 50% shows nothing either way.`,
+    title,
+    note: `${data.what}${!timed || ms === undefined ? '' : ` ${ms} ms per move.`} A match here is ${data.openings.length * 2} games, which is few: a result within about twenty points of 50% shows nothing either way.`,
     head: ['Match', 'Games', 'Won', 'Drawn', 'Lost', 'Points'],
     rows: data.rows.map((row) => [
       `${row.candidate} against ${row.baseline}`,
@@ -219,12 +224,24 @@ export function looksRecorded(value: unknown): value is { run: Run } {
   );
 }
 
-export const RECORDED: { search: SearchResults; matches: MatchResults; credibility: CredibilityResults } = {
+export const RECORDED: {
+  search: SearchResults;
+  matches: MatchResults;
+  ladder: MatchResults;
+  credibility: CredibilityResults;
+} = {
   search: searchFile,
   matches: matchesFile,
+  ladder: ladderFile,
   credibility: credibilityFile,
 };
 
 export function recordedTables(data = RECORDED): RecordedTable[] {
-  return [depthTable(data.search), movesTable(data.search), matchTable(data.matches), credibilityTable(data.credibility)];
+  return [
+    depthTable(data.search),
+    movesTable(data.search),
+    matchTable(data.matches),
+    matchTable(data.ladder, 'Are the difficulty levels really different?', false),
+    credibilityTable(data.credibility),
+  ];
 }

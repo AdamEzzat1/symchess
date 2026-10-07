@@ -207,7 +207,7 @@ check('moves after the game is over are refused', (await until(ofType('error'), 
 send({ type: 'set_time_control', baseMs: null });
 
 console.log('difficulty levels');
-check('hello lists the three levels', Array.isArray(hello.levels) && hello.levels.map((l) => l.id).join() === 'novice,club,expert');
+check('hello lists the four levels, weakest first', Array.isArray(hello.levels) && hello.levels.map((l) => l.id).join() === 'novice,casual,club,expert');
 send({ type: 'set_level', level: 'grandmaster' });
 check('an unknown level is refused', (await until(ofType('error'), 'bad level')).code === 'bad_request');
 send({ type: 'set_level', level: 'novice' });
@@ -278,6 +278,14 @@ check('the basis gives the number the check used', /ends \d+\.\d pawns of materi
 check('agreement is counted by the engine', traced.agreement.confirmed >= 1 && traced.agreement.searchMove === traced.move.san);
 check('the earlier comparison can be followed back too', traceable(why.items, []) &&
   why.items.some((i) => i.rule === 'motif:hangs_piece' && i.check === 'check:warning'));
+
+// Asking about the engine's own move, with Prolog running: Prolog's sentences must
+// be there. (They once were not: a misplaced parenthesis skipped them.)
+send({ type: 'explain_move', uci: traced.move.uci, positionId: looseState.positionId });
+const own = await until((m) => m.type === 'counterfactual' && m.positionId === looseState.positionId, 'why not, about the engine own move', 60_000);
+check('asked about its own move, the engine says so and gives no caution', own.isBest === true && own.verdict === 'best' && own.caution === null);
+check('and Prolog still speaks about that move', own.items.some((i) => i.source === 'prolog' && i.motif === 'captures_hanging' && i.status === 'confirmed'));
+check('a rating against a move says at what depth and carries a caution', /^At depth \d+ the search prefers/.test(why.summary) && /not proof/.test(why.caution));
 
 console.log('importing a game');
 send({ type: 'load_pgn', pgn: 'not a game at all' });

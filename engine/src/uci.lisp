@@ -42,6 +42,18 @@ A move that is not legal ends the list there: the moves before it stand."
         (format nil "mate ~D" (if (plusp score) moves (- moves))))
       (format nil "cp ~D" score)))
 
+(defun uci-time-for-move (clock-ms increment-ms moves-to-go)
+  "Milliseconds to spend on one move with CLOCK-MS left. A share of the clock
+(a thirtieth, or an equal share of the moves left before the time control)
+plus most of the increment, never more than half of what is left and never
+less than 20 ms. Simple on purpose: it keeps the engine from losing on time
+in a match, and claims nothing more."
+  (let* ((share (floor clock-ms (if (and moves-to-go (plusp moves-to-go))
+                                    (1+ moves-to-go)
+                                    30)))
+         (bonus (floor (* 3 (or increment-ms 0)) 4)))
+    (max 20 (min (+ share bonus) (floor clock-ms 2)))))
+
 (defun uci-loop (&optional (in *standard-input*) (out *standard-output*))
   "Read UCI commands from IN and answer on OUT until `quit` or end of input."
   (let ((p (pos-from-fen +start-fen+))
@@ -71,9 +83,13 @@ A move that is not legal ends the list there: the moves before it stand."
                                        (parse-integer (nth (1+ at) words) :junk-allowed t)))))
                       (depth (funcall number "depth"))
                       (movetime (funcall number "movetime"))
-                      ;; No real time management: a thirtieth of the clock.
-                      (clock (funcall number (if (= (pos-side root) 1) "wtime" "btime")))
-                      (time-ms (or movetime (and clock (max 50 (floor clock 30))))))
+                      (white (= (pos-side root) 1))
+                      (clock (funcall number (if white "wtime" "btime")))
+                      (time-ms (or movetime
+                                   (and clock
+                                        (uci-time-for-move clock
+                                                           (funcall number (if white "winc" "binc"))
+                                                           (funcall number "movestogo"))))))
                  (setf stop flag
                        unbounded (and (null depth) (null time-ms)))
                  (setf worker

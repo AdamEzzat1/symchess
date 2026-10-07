@@ -5,10 +5,10 @@ import { formatScore } from './SearchTrace';
 const VERDICT: Record<string, { label: string; tone: string }> = {
   best: { label: 'engine’s choice', tone: 'confirmed' },
   as_good: { label: 'about as good', tone: 'confirmed' },
-  inaccuracy: { label: 'inaccuracy', tone: 'unconfirmed' },
-  missed_chance: { label: 'missed chance', tone: 'unconfirmed' },
-  mistake: { label: 'mistake', tone: 'overruled' },
-  blunder: { label: 'blunder', tone: 'overruled' },
+  inaccuracy: { label: 'slightly lower', tone: 'unconfirmed' },
+  missed_chance: { label: 'lower, not losing', tone: 'unconfirmed' },
+  mistake: { label: 'lower', tone: 'overruled' },
+  blunder: { label: 'much lower', tone: 'overruled' },
 };
 
 interface Props {
@@ -76,8 +76,12 @@ export function Counterfactual({ game, result, disabled, send, onReplay, replayP
       {result && verdict && (
         <div className="whynot">
           <p className="summary">
-            <span className={`badge badge-${verdict.tone}`}>{verdict.label}</span> {result.summary}
+            <span className={`badge badge-${verdict.tone}`} title={`The engine’s band for the score difference: ${result.verdict}`}>
+              {verdict.label} at depth {result.depth}
+            </span>{' '}
+            {result.summary}
           </p>
+          {result.caution && <p className="caution">{result.caution}</p>}
           <table className="whynot-table">
             <thead>
               <tr>

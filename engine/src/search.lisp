@@ -327,7 +327,12 @@ piece for free. Simplification: checks are not extended here."
   (declare (type pos p) (type sctx ctx) (type fixnum depth alpha beta sp))
   (setf (aref (sctx-pv-len ctx) sp) 0)
   (when (and (plusp sp)
-             (or (>= (pos-halfmove p) 100) (plusp (repetition-count p))))
+             (or (>= (pos-halfmove p) 100) (plusp (repetition-count p))
+                 ;; Bare kings, or a king and one minor piece against a king:
+                 ;; nobody can win, whatever the material count says. The test
+                 ;; stops at the first pawn, rook or queen, so it is cheap
+                 ;; everywhere except where it matters.
+                 (insufficient-material-p p)))
     (return-from negamax 0))
   (when (>= sp (- +max-search-ply+ 2)) (return-from negamax (evaluate p)))
   (let ((in-check (in-check-p p))

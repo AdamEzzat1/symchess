@@ -27,7 +27,7 @@
 
 (defvar *log-stream* nil)
 (defvar *log-lock* (sb-thread:make-mutex :name "log"))
-(defparameter *engine-version* "symchess 0.6.0")
+(defparameter *engine-version* "symchess 0.7.0")
 
 (defvar *prolog-version-string* nil)
 
@@ -68,6 +68,9 @@
 
 (defparameter *levels*
   (list (make-level :name "novice" :depth 3 :time-ms 1000 :full nil :margin 60)
+        ;; Between the two: the whole evaluation, a shorter look ahead, and a
+        ;; little of Novice's freedom to pick a move that is nearly as good.
+        (make-level :name "casual" :depth 4 :time-ms 1500 :full t :margin 25)
         (make-level :name "club" :depth 6 :time-ms 2000 :full t :margin 0)
         ;; Expert searches as deep as its time allows.
         (make-level :name "expert" :depth 30 :time-ms 3000 :full t :margin 0)))
@@ -111,6 +114,13 @@ it is the search's best move. Must run with LEVEL's features switched on."
                (format nil "Novice level: played ~A rather than its top choice ~A. At this level it picks among the moves it scores within ~,1F pawns of its best, never one that loses material to the next move."
                        (move-san p chosen) (move-san p (search-result-best-move result))
                        (/ (level-margin level) 100.0))))
+          ((string= name "casual")
+           (if best-p
+               (format nil "Casual level: a ~D-ply search with the full evaluation."
+                       (search-result-depth result))
+               (format nil "Casual level: played ~A rather than its top choice ~A. At this level it picks among the moves it scores within ~,2F pawns of its best, never one that loses material to the next move."
+                       (move-san p chosen) (move-san p (search-result-best-move result))
+                       (/ (level-margin level) 100.0))))
           ((string= name "club")
            (format nil "Club level: a ~D-ply search with the full evaluation."
                    (search-result-depth result)))
@@ -129,7 +139,7 @@ it is the search's best move. Must run with LEVEL's features switched on."
   (position-id 1)
   (mode "play")                         ; "play" | "analysis"
   (human-color "white")
-  (level "club")                        ; "novice" | "club" | "expert"
+  (level "club")                        ; the name of an entry of *LEVELS*
   (depth 6)
   (move-time-ms 2000)
   (status "active")
@@ -545,6 +555,23 @@ but still leaves its mover no worse is a missed chance, not a blunder."
                         ("blunder" . "a blunder"))
               :test #'string=)))
 
+;;; A rating is what one search to one depth thinks. It is worded that way
+;;; everywhere: "at depth 6 the search prefers...", never a bare "this is a
+;;; mistake". A search this shallow is wrong about sacrifices that pay off
+;;; beyond its horizon, and the caution says so where it matters most.
+(defun depth-caution (verdict depth &optional mate)
+  "A sentence limiting what a rating of VERDICT at DEPTH can be taken to mean,
+or NIL where the rating says nothing against the move. MATE: one of the two
+lines being compared ends in a forced mate. A mate the search has found is
+exact, so the rating is not a matter of depth and is not hedged."
+  (cond ((member verdict '("best" "as_good") :test #'string=) nil)
+        (mate
+         "One of the two lines ends in a forced mate, which the search has seen to the end: this rating does not depend on how deep it looked.")
+        ((string= verdict "missed_chance")
+         (format nil "This is a depth-~D preference, not proof of an error: a sacrifice or a slow plan that pays off beyond ~D plies looks exactly like this." depth depth))
+        (t
+         (format nil "This is what a depth-~D search prefers, not proof of a mistake." depth))))
+
 (defun mate-score-p (score) (> (abs score) +mate-bound+))
 
 (defun pv-captures-on-p (p pv targets)
@@ -836,12 +863,15 @@ MOVER is +1 or -1. Returns an object, or :null for the starting position."
                   (same
                    (say "~A is the move the search would play too (depth ~D)." san (getf judged :depth)))
                   (mate
-                   (say "The search preferred ~A (depth ~D); it rates ~A ~A."
-                        (getf judged :best-san) (getf judged :depth) san (verdict-words verdict)))
+                   (say "At depth ~D the search preferred ~A; by that measure ~A is ~A."
+                        (getf judged :depth) (getf judged :best-san) san (verdict-words verdict)))
                   (t
-                   (say "The search preferred ~A (depth ~D). It rates ~A ~A~:[: about ~,1F pawns worse~;~*~]."
-                        (getf judged :best-san) (getf judged :depth) san (verdict-words verdict)
-                        (zerop loss) (/ loss 100.0))))
+                   (say "At depth ~D the search preferred ~A~:[, scoring ~A about ~,1F pawns lower~;~2*~]: by that measure ~A is ~A."
+                        (getf judged :depth) (getf judged :best-san)
+                        (zerop loss) san (/ loss 100.0)
+                        san (verdict-words verdict))))
+            (let ((caution (and judged (not same) (depth-caution verdict (getf judged :depth) mate))))
+              (when caution (say "~A" caution)))
             ;; --- what changed in the position
             (cond ((not (and a b))
                    (say "The game ends here, so there is no score to compare."))
@@ -896,6 +926,10 @@ MOVER is +1 or -1. Returns an object, or :null for the starting position."
                                    (sb-thread:with-mutex (*search-lock*)
                                      (unless (stop)
                                        (set-engine-features)
+                                       ;; From an empty table, so the rating of a
+                                       ;; move does not depend on what was
+                                       ;; searched before it.
+                                       (tt-clear)
                                        (search-position p :max-depth *review-depth*
                                                           :time-ms *review-time-ms*
                                                           :stop-fn #'stop)))))
@@ -1250,9 +1284,13 @@ number from one of those two searches or a fact from Prolog, and says which."
                 "bestFactsRemoved" best-removed
                 "summary" (if same
                               (format nil "~A is the engine's own choice (~A)." san (score-text alt-score side))
-                              (format nil "The search rates ~A ~A~:[: about ~,1F pawns worse than ~A~;~*~*~]~:[~;, though ~A is still not worse~]."
-                                      san (verdict-words verdict) (or mate (zerop loss)) (pawns loss) best-san
+                              (format nil "At depth ~D the search prefers ~A~:[ and scores ~A about ~,1F pawns lower~;~2*~]: by that measure ~A is ~A~:[~;, though ~A is still not worse~]."
+                                      (search-result-depth alt) best-san
+                                      (or mate (zerop loss)) san (pawns loss)
+                                      san (verdict-words verdict)
                                       (string= verdict "missed_chance") mover))
+                ;; What the rating can and cannot be taken to mean.
+                "caution" (or (and (not same) (depth-caution verdict (search-result-depth alt) mate)) :null)
                 "items" items
                 "agreement" (agreement-fields items)
                 ;; The asked move, the engine's move, and the reply that answers the asked one.
@@ -1276,6 +1314,8 @@ number from one of those two searches or a fact from Prolog, and says which."
         (sb-thread:with-mutex (*search-lock*)
           (when (cancelled-p flag) (return-from run-counterfactual nil))
           (set-engine-features)
+          ;; From an empty table: the same question gets the same answer.
+          (tt-clear)
           (let* ((stop (lambda () (car flag)))
                  (best (search-position p :max-depth depth :time-ms time-ms :stop-fn stop))
                  (choice (search-result-best-move best)))

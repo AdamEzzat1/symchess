@@ -1,13 +1,15 @@
 {
   "run": {
-    "date": "2026-10-07 15:51 UTC",
+    "date": "2026-10-07 18:18 UTC",
     "command": "sbcl --script engine/tests/experiment.lisp",
-    "engine": "symchess 0.6.0",
+    "engine": "symchess 0.7.0",
     "lisp": "SBCL 2.6.9",
     "prolog": "SWI-Prolog 10.0.2",
     "machine": "Intel64 Family 6 Model 140 Stepping 2, GenuineIntel, Win32",
-    "sourceDigest": "409793dd18b6279520bbf68c0a80bb03",
-    "commit": "f060ac8",
+    "processors": 8,
+    "note": null,
+    "sourceDigest": "69a2989a53a7c2260bd778cfa9f7a02b",
+    "commit": "08dcf22",
     "uncommittedChanges": true
   },
   "configurations": [
@@ -118,7 +120,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 2353926,
-        "searchMs": 6035,
+        "searchMs": 7615,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -127,7 +129,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 2356883,
-        "searchMs": 8592,
+        "searchMs": 8947,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
       },
@@ -136,7 +138,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 1823471,
-        "searchMs": 4258,
+        "searchMs": 5991,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -145,7 +147,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 639696,
-        "searchMs": 1842,
+        "searchMs": 2115,
         "prologMs": null,
         "moves": ["b1c3","b1c3","b5c6","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","b1c3","g1f3","b1c3","g1f3","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -154,7 +156,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 2369802,
-        "searchMs": 4952,
+        "searchMs": 6685,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -163,7 +165,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 2076763,
-        "searchMs": 4562,
+        "searchMs": 5482,
         "prologMs": null,
         "moves": ["b1c3","b1c3","d2d4","d5e6","d5c7","d2d4","d4d6","b1c3","c4d5","f1b5","g1f3","b1c3","d2d4","d2d4","b1c3","e2e3","b1c3","g1f3","b1c3"]
       },
@@ -172,7 +174,7 @@
         "depth": 6,
         "positions": 19,
         "nodes": 477061,
-        "searchMs": 1996,
+        "searchMs": 1918,
         "prologMs": null,
         "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","f1b5","g1f3","b1c3","g1f3","d2d4","b1c3","b1c3","b1c3","g1f3","g1f3"]
       },
@@ -181,8 +183,8 @@
         "depth": 6,
         "positions": 19,
         "nodes": 476932,
-        "searchMs": 2034,
-        "prologMs": 1220,
+        "searchMs": 2141,
+        "prologMs": 2058,
         "moves": ["g1f3","b1c3","d2d4","d5e6","d5c7","b1c3","g2f3","b1c3","c4d5","f1b5","g1f3","e4e5","g1f3","d2d4","e4e5","b1c3","b1c3","b1c3","g1f3"]
       }
     ]

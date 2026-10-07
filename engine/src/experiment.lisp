@@ -253,6 +253,11 @@ git says."
          "machine" (format nil "~A, ~A"
                            (or (sb-ext:posix-getenv "PROCESSOR_IDENTIFIER") (machine-version) (machine-type))
                            (software-type))
+         "processors" (let ((n (sb-ext:posix-getenv "NUMBER_OF_PROCESSORS")))
+                        (or (and n (parse-integer n :junk-allowed t)) :null))
+         ;; Whatever the person running it wants on record about the conditions
+         ;; (SYMCHESS_RUN_NOTE), such as what else the machine was doing.
+         "note" (or (sb-ext:posix-getenv "SYMCHESS_RUN_NOTE") :null)
          "sourceDigest" (source-digest)
          "commit" (if (and commit (plusp (length commit))) commit :null)
          ;; True when the engine or the rules differ from that commit.

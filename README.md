@@ -11,6 +11,14 @@ A classical, explainable chess AI in three layers:
 The design, the reasoning behind it and the measured results are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## What it claims, and what it does not
+
+- **Claims.** The search's sentences are numbers the search returned. Prolog's sentences are a second opinion about the position, each marked with how it stands against what the search found. Tactical facts are measured against hand-labelled positions. Every figure on the results page names the run that produced it.
+- **Does not claim.** That Prolog makes the engine play better: measured three ways, it does not. That a move the search rates lower is a mistake: it is what a depth-6 search prefers, and the interface says so. Any Elo rating.
+- **Limits.** [docs/LIMITATIONS.md](docs/LIMITATIONS.md) lists every known limit and where it stands. [docs/RESEARCH_NOTES.md](docs/RESEARCH_NOTES.md) says what outside practice was checked against.
+
+![A fact traced back to its rule and forward to the search's verdict](docs/screenshots/trace.png)
+
 ## Requirements
 
 | Tool | Version used |
@@ -48,13 +56,16 @@ and the UI says so.
 
 ## Difficulty
 
-The engine plays at one of three levels, chosen under **Game** in the left rail. A level is a real engine configuration, not a strong engine told to blunder.
+The engine plays at one of four levels, chosen under **Game** in the left rail. A level is a real engine configuration, not a strong engine told to blunder.
 
 - **Novice**: a 3-ply search with a simple evaluation; picks among the moves it scores close to its best. It never gives a piece away to the next move and never passes up a mate it has seen.
+- **Casual**: a 4-ply search with the full evaluation; may settle for a move within a quarter of a pawn of its best.
 - **Club**: a 6-ply search with the full evaluation.
 - **Expert**: searches as deep as its time allows.
 
 Analysis always runs at full strength.
+
+The steps between levels are steep. In recorded matches of 24 games Casual won every game against Novice and Club won 23 of 24 against Casual. On the hosted site every level is capped at depth 7 and 3 seconds, so Expert plays much like Club there; the level picker says what each level gets on the server you are connected to.
 
 ## Guided tour, replay and results
 
@@ -243,8 +254,27 @@ file for the names):
 sbcl --script engine/tests/selfplay.lisp
 ```
 
+The difficulty levels against each other, about half an hour:
+
+```bash
+sbcl --script engine/tests/experiment.lisp ladder
+```
+
+Were the recorded files made by the sources as they are now?
+
+```bash
+sbcl --script engine/tests/experiment.lisp verify
+```
+
 The results page in the app is built from those files. `credibility.lisp`
-above records its run the same way.
+above records its run the same way. Set `SYMCHESS_RUN_NOTE` to put a note
+about the conditions (what else the machine was doing) into a recorded file.
+
+Screenshots of the main views, with the engine and the dev server running:
+
+```bash
+npm --prefix web run screenshots
+```
 
 With the engine running, the end-to-end script drives a real session over the
 WebSocket and records the engine's messages for the frontend contract test:

@@ -24,9 +24,9 @@ const height = (score: Score): number =>
 
 /** Moves the engine's rough comparison marks out. Presentation of its verdict, nothing more. */
 const FLAG_TITLE: Record<string, string> = {
-  missed_chance: 'The search rates this a missed chance',
-  mistake: 'The search rates this a mistake',
-  blunder: 'The search rates this a blunder',
+  missed_chance: 'A shallow search preferred another move by a wide margin, though this one left its side no worse. Not proof of an error',
+  mistake: 'A shallow search preferred another move. Not proof of a mistake',
+  blunder: 'A shallow search preferred another move by a wide margin. Not proof of a blunder',
 };
 const flag = (verdict: string | null | undefined) => (verdict && FLAG_TITLE[verdict] ? ` replay-step-${verdict}` : '');
 

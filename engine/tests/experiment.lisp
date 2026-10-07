@@ -8,6 +8,16 @@
 ;;;;   sbcl --script engine/tests/experiment.lisp matches [ms]  about 35 minutes at 100 ms
 ;;;;       self-play matches, 24 games each         -> results/matches.json
 ;;;;
+;;;;   sbcl --script engine/tests/experiment.lisp ladder [ms]   about 25 minutes at 1000 ms
+;;;;       each difficulty level against the one below it. Novice, Casual and
+;;;;       Club search to their own fixed depth; only Expert uses the clock,
+;;;;       so [ms] is Expert's time per move  -> results/ladder.json
+;;;;
+;;;;   sbcl --script engine/tests/experiment.lisp verify
+;;;;       were the recorded files made by the sources as they are now? Compares
+;;;;       each file's fingerprint with the engine and rule files on disk and
+;;;;       exits non-zero if any differ. Run it before publishing results.
+;;;;
 ;;;; The configurations are named in engine/src/experiment.lisp. Each results
 ;;;; file records the date, machine, commit and command, and what every
 ;;;; configuration switches on, so a figure on the results page can be traced
@@ -92,6 +102,49 @@
   '(("new" "old") ("hints" "new")
     ("activity" "old") ("see" "old") ("lmr" "old") ("aspiration" "old") ("delta" "old")))
 
+(defun run-pairings (file pairings ms what command)
+  (let ((rows '())
+        (run (run-metadata command))
+        (names (remove-duplicates (apply #'append pairings) :test #'string= :from-end t)))
+    (dolist (pairing pairings)
+      (destructuring-bind (candidate baseline) pairing
+        (format t "~&== ~A against ~A~%" candidate baseline)
+        (let ((row (play-match candidate baseline ms
+                               :on-game (lambda (opening white scored)
+                                          (declare (ignore opening white))
+                                          (format t "~A" (ecase scored (:win "+") (:draw "=") (:loss "-")))
+                                          (finish-output)))))
+          (push row rows)
+          (format t "~%   ~D wins, ~D draws, ~D losses: ~,1F% of the points~%"
+                  (jget row "wins") (jget row "draws") (jget row "losses") (jget row "points")))
+        ;; Written after every match, so a long run that is stopped keeps what it finished.
+        (write-results
+         file
+         (obj "run" run
+              "configurations" (mapcar (lambda (name)
+                                         (let ((level (find-level name)))
+                                           (if level
+                                               (obj "name" name
+                                                    "description" (format nil "Difficulty level: depth ~D, ~:[the first engine's evaluation~;the full evaluation~], may pick a move within ~,2F pawns of its best."
+                                                                          (level-depth level) (level-full level)
+                                                                          (/ (level-margin level) 100.0))
+                                                    "features" (obj) "rootHints" :false)
+                                               (configuration-object name))))
+                                       names)
+              "what" what
+              "openings" (mapcar #'first *match-openings*)
+              "complete" (jbool (= (length rows) (length pairings)))
+              "rows" (reverse rows)))))
+    (format t "~%written to ~A~%" (enough-namestring (results-path file)))))
+
+(defun run-ladder (ms)
+  (run-pairings
+   "ladder"
+   '(("casual" "novice") ("club" "casual") ("club" "novice") ("expert" "club"))
+   ms
+   (format nil "The difficulty levels against each other: twelve openings, each played twice with colours swapped. Novice, Casual and Club search to their own fixed depth with no clock. Expert had ~D ms per move, a third of its real allowance." ms)
+   (format nil "sbcl --script engine/tests/experiment.lisp ladder ~D" ms)))
+
 (defun run-matches (ms)
   (let ((rows '())
         ;; Taken once, at the start: it describes the program that is running.
@@ -119,8 +172,29 @@
               "rows" (reverse rows)))))
     (format t "~%written to ~A~%" (enough-namestring (results-path "matches")))))
 
-(if (equal (first *arguments*) "matches")
-    (run-matches (if (second *arguments*) (parse-integer (second *arguments*)) 100))
-    (run-search-measures))
+(let ((mode (first *arguments*))
+      (ms (and (second *arguments*) (parse-integer (second *arguments*)))))
+  (cond ((equal mode "verify")
+         (let ((now (source-digest)) (stale 0))
+           (format t "~&sources on disk: ~A~%" now)
+           (dolist (name '("search" "matches" "ladder" "credibility"))
+             (let* ((path (results-path name))
+                    (run (and (probe-file path)
+                              (jget (json-decode
+                                     (with-open-file (in path :external-format :utf-8)
+                                       (let ((text (make-string (file-length in))))
+                                         (subseq text 0 (read-sequence text in)))))
+                                    "run")))
+                    (digest (and run (jget run "sourceDigest"))))
+               (cond ((null digest) (incf stale) (format t "  ~12A missing~%" name))
+                     ((string= digest now)
+                      (format t "  ~12A matches (recorded ~A)~%" name (jget run "date")))
+                     (t (incf stale)
+                        (format t "  ~12A STALE: made by ~A on ~A~%" name digest (jget run "date"))))))
+           (stop-prolog)
+           (sb-ext:exit :code (if (zerop stale) 0 1))))
+        ((equal mode "matches") (run-matches (or ms 100)))
+        ((equal mode "ladder") (run-ladder (or ms 1000)))
+        (t (run-search-measures))))
 (set-engine-features)
 (stop-prolog)

@@ -197,6 +197,13 @@ describe('why not this move? is about one position', () => {
     expect(run([game(5, 1), asked(5, 9, 2), line]).line).toBeNull();
   });
 
+  it('may carry the engine’s caution about what a rating means, and nothing else in its place', () => {
+    const caution = 'This is what a depth-6 search prefers, not proof of a mistake.';
+    expect(run([game(5, 1), { ...asked(5, 9, 2), caution }]).counterfactual?.caution).toBe(caution);
+    expect(parseServerMessage(JSON.stringify({ ...asked(5, 9, 2), caution: null }))).not.toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...asked(5, 9, 2), caution: 7 }))).toBeNull();
+  });
+
   it('is rejected when malformed', () => {
     expect(parseServerMessage(JSON.stringify(asked(5, 9, 2)))).not.toBeNull();
     expect(parseServerMessage(JSON.stringify({ ...asked(5, 9, 2), verdict: 7 }))).toBeNull();

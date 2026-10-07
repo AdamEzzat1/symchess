@@ -2229,3 +2229,13 @@ select,
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+
+/* What a rating can and cannot be taken to mean. */
+.caution {
+  margin: 4px 0 8px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--weak);
+  background: rgb(217 164 65 / 7%);
+  font-size: 0.84rem;
+  color: #d9c9a3;
+}

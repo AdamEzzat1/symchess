@@ -754,6 +754,111 @@
          (list (length a) (string= a (source-digest))))
        '(32 t))
 
+(section "repairs to the milestone limits")
+;; --- a draw nobody can win is scored as a draw, however the material looks
+(flet ((score (fen depth)
+         (tt-clear)
+         (search-result-score (search-position (pos-from-fen fen) :max-depth depth))))
+  (check "king and bishop against king and knight: one capture from a dead draw is seen as one"
+         ;; Bxc6 leaves king and bishop against king. Before, that counted as a piece up.
+         (< (abs (score "7k/8/2n5/8/4B3/8/8/K7 w - - 0 1" 4)) 100)
+         t)
+  (check "king and rook against king is still a win"
+         (> (score "8/8/8/8/8/8/R7/K6k w - - 0 1" 4) 300)
+         t)
+  (check "a pawn is enough to keep playing"
+         (> (score "8/8/8/8/8/4k3/4P3/4K3 w - - 0 1" 4) 0)
+         t))
+
+;; --- the level between Novice and Club
+(let ((casual (find-level "casual")))
+  (check "there are four levels, weakest first"
+         (mapcar #'level-name *levels*) '("novice" "casual" "club" "expert"))
+  (check "Casual looks further than Novice and less far than Club"
+         (< (level-depth (find-level "novice")) (level-depth casual) (level-depth (find-level "club")))
+         t)
+  (check "Casual has the whole evaluation and a smaller margin than Novice"
+         (list (level-full casual) (< 0 (level-margin casual) (level-margin (find-level "novice"))))
+         '(t t))
+  (apply-level-features casual)
+  (let* ((p (pos-from-fen "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1"))
+         (r (progn (tt-clear) (search-position p :max-depth (level-depth casual)))))
+    (check "Casual never trades a forced mate for variety"
+           (move-uci (choose-level-move p r casual)) "e1e8"))
+  (let* ((p (pos-from-fen "4k3/8/8/3n4/8/2Q5/8/4K3 w - - 0 1"))
+         (r (progn (tt-clear) (search-position p :max-depth (level-depth casual))))
+         (state (sb-ext:seed-random-state 7)))
+    (check "Casual never picks a move that loses its queen, in fifty tries"
+           (loop repeat 50
+                 never (member (move-uci (choose-level-move p r casual state))
+                               '("e1e2" "e1d1" "e1f1" "e1f2" "e1d2") :test #'string=))
+           t)
+    (check "its note names the level"
+           (and (search "Casual level" (level-note p casual r (search-result-best-move r) t)) t)
+           t))
+  (set-engine-features))
+
+;; --- ratings are worded as what one search to one depth prefers
+(check "a rating against the move carries a caution about depth"
+       (and (search "depth-6" (depth-caution "mistake" 6))
+            (search "not proof" (depth-caution "mistake" 6))
+            t)
+       t)
+(check "a missed chance is said to look exactly like a sacrifice the search cannot see"
+       (and (search "sacrifice" (depth-caution "missed_chance" 5)) t) t)
+(check "a rating that rests on a forced mate is not hedged as a matter of depth"
+       (let ((text (depth-caution "blunder" 5 t)))
+         (list (and (search "forced mate" text) t) (search "not proof" text)))
+       '(t nil))
+(check "no caution where the rating says nothing against the move"
+       (list (depth-caution "best" 6) (depth-caution "as_good" 6)) '(nil nil))
+(let ((*swipl-program* "symchess-no-such-prolog")
+      (*error-output* (make-broadcast-stream)))
+  (stop-prolog)
+  (let* ((p (pos-from-fen "4k3/8/4p3/3p4/8/8/3Q4/4K3 w - - 0 1"))
+         (best (progn (tt-clear) (search-position p :max-depth 4)))
+         (alt (search-line p (parse-uci-move p "d2d5") 4))
+         (answer (build-counterfactual p best alt nil))
+         (same (build-counterfactual p best best nil)))
+    (check "the summary of a comparison says at what depth it was made"
+           (and (eql 0 (search "At depth 4 the search prefers" (getf-string answer "summary"))) t) t)
+    (check "the comparison carries the caution"
+           (and (search "not proof" (getf-string answer "caution")) t) t)
+    (check "and none for the engine's own move" (getf-string same "caution") :null))
+  (let* ((terms (obj "material" 0 "placement" 0 "pawnStructure" 0 "bishopPair" 0 "activity" 0 "kingSafety" 0 "total" 0))
+         (snap (list :score 0 :terms terms :analysis nil))
+         (lines (jget (review-change "Nxb5" 1 snap snap
+                                     (list :same nil :best-san "Bg5" :best-score 150 :move-score 40 :depth 5))
+                      "lines")))
+    (check "a review line says at what depth the preference was formed"
+           (and (eql 0 (search "At depth 5 the search preferred Bg5" (first lines))) t) t)
+    (check "a missed chance in a review is followed by the caution"
+           (and (search "depth-5 preference, not proof" (second lines)) t) t)))
+(stop-prolog)
+
+;; --- the clock, for matches against other programs
+(check "a thirtieth of the clock when nothing else is known" (uci-time-for-move 60000 nil nil) 2000)
+(check "most of the increment is added" (uci-time-for-move 60000 1000 nil) 2750)
+(check "an equal share of the moves left before the time control" (uci-time-for-move 30000 nil 9) 3000)
+(check "never more than half of what is left" (uci-time-for-move 100 5000 nil) 50)
+(check "never less than 20 ms" (uci-time-for-move 30 nil nil) 20)
+
+;; --- a tactical suite the full engine must keep solving
+(load (merge-pathnames "credibility-positions.lisp" *load-truename*))
+(let ((entries (loop for entry in (append *credibility-positions* *held-out-positions*
+                                          *second-held-out-positions*)
+                     for (id nil fen . keys) = entry
+                     when (or (getf keys :best) (getf keys :avoid))
+                       collect (list id fen (getf keys :best) (getf keys :avoid))))
+      ;; Known and reported: the search takes a different winning route here.
+      (known-misses '("held-hanging-pawn")))
+  (let* ((row (measure-labelled-moves "new" entries 6 nil))
+         (missed (mapcar (lambda (m) (jget m "position")) (jget row "missed"))))
+    (check "the tactical suite has every labelled move from the benchmark sets"
+           (>= (length entries) 36) t)
+    (check "the full engine at depth 6 solves all of it but the known miss"
+           (set-difference missed known-misses :test #'string=) nil)))
+
 (section "json and websocket primitives")
 (check "json round trip"
        (json-encode (json-decode "{\"a\":[1,2,{\"b\":null}],\"c\":\"x\\ny\",\"d\":true,\"e\":-3}"))

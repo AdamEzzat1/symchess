@@ -407,6 +407,16 @@ function createWorld(canvas: HTMLCanvasElement) {
 
   const statues = new Map<Square, Statue>();
   let tweens: Tween[] = [];
+  // The draw loop runs only while something is moving (see `frame`).
+  let looping = false;
+  let awakeUntil = 0;
+  const wake = () => {
+    awakeUntil = performance.now() + 1500;
+    if (!looping && !disposed) {
+      looping = true;
+      requestAnimationFrame((now) => frame(now));
+    }
+  };
   let busy = false;
   let shown: GameState | null = null;
   let waiting: GameState | null = null;
@@ -417,6 +427,7 @@ function createWorld(canvas: HTMLCanvasElement) {
 
   const tween = (duration: number, step: (k: number) => void, done?: () => void, delay = 0) => {
     tweens.push({ start: performance.now() + delay * SLOW, duration: duration * SLOW, step, done });
+    wake();
   };
 
   const place = (statue: Statue, square: Square) => {
@@ -865,7 +876,13 @@ function createWorld(canvas: HTMLCanvasElement) {
 
   const frame = (now: number) => {
     if (disposed) return;
-    requestAnimationFrame(frame);
+    // Keep drawing while anything is moving: an animation, a selected piece
+    // (it pulses), the tremor of a blow, or a change in the last second and a
+    // half (which lets a raised piece settle). Otherwise draw this one frame
+    // and stop until something wakes the loop.
+    const moving = tweens.length > 0 || busy || selected !== null || shake !== 0 || now < awakeUntil;
+    if (moving) requestAnimationFrame(frame);
+    else looping = false;
     const running = tweens;
     tweens = [];
     for (const item of running) {
@@ -902,20 +919,30 @@ function createWorld(canvas: HTMLCanvasElement) {
     }
     renderer.render(scene, camera);
   };
-  requestAnimationFrame(frame);
+  wake();
+
+  /** Every way the scene can be changed from outside goes through here. */
+  const waking = <A extends unknown[], T>(fn: (...args: A) => T) =>
+    (...args: A): T => {
+      const result = fn(...args);
+      wake();
+      return result;
+    };
 
   return {
-    show,
-    select,
-    setCamera,
+    show: waking(show),
+    select: waking(select),
+    setCamera: waking(setCamera),
     squareUnder,
-    setBest,
-    setCalm(value: boolean) {
+    setBest: waking(setBest),
+    setCalm: waking((value: boolean) => {
       calm = value;
-    },
-    setMinimal(value: boolean) {
+    }),
+    setMinimal: waking((value: boolean) => {
       minimal = value;
-    },
+    }),
+    /** True while the draw loop is running. For tests and for the curious. */
+    drawing: () => looping,
     dispose() {
       disposed = true;
       renderer.dispose();
