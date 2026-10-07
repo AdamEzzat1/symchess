@@ -342,3 +342,29 @@ The criterion was "keep if nodes fall by 5%, remove the ordering if under 2%". N
 **Prolog inside the search (experiment D).** Not built; the arithmetic settles it. A root analysis takes about 22 ms and a position has about 31 legal moves *(both measured)*, so asking Prolog about every position two moves from the root would take about 21 seconds per move before any searching, against a 3-second allowance.
 
 **The upshot** is the same as before, now with more evidence: in this engine Prolog earns its place by explaining, warning and planning. It does not make the search faster or the play stronger.
+
+## Milestone 4: results
+
+**Built.**
+
+| Feature | What it is | Who owns what |
+| --- | --- | --- |
+| Guided tour | Five prepared positions with captions: a pin, a fork the search confirms, that line played forward, a plan from a fact, three levels on one position | A script of ordinary commands. The captions say where to look; the facts on screen are the engine's and Prolog's answers |
+| "Why this move?" replay | The expected line, one position at a time, on the main board (flat or 3D), with Prolog's facts for each | New `request_line` command and `line_replay` reply. Lisp makes the moves, Prolog reads each position, React draws them |
+| Checkmate | Flat board: lines run in to the king, which frosts and dims. 3D: the same, on the board plane | Drawn where the engine says the checked king is, when it says the game is checkmate |
+| Promotion | The pawn dissolves upward and the new piece forms from a burst of light, in both views | Detected by comparing two boards the engine sent |
+| Motion setting | Expressive or Minimal, remembered; reduced-motion devices get neither | Presentation only |
+| Best-move arrow in 3D | The search's best move as an arrow lying on the board, under the same "Best line" switch as the flat board | The search's own move, nothing added |
+| Measured results page | The tables from this document, including the hint experiment that failed | Static text, copied from here |
+
+**The replay keeps the existing guarantees.** A replayed position has no legal moves and a negative `positionId`, so it cannot be played on or confused with a game position. A line is tied to the explanation on screen by `searchId` and is dropped with it, by the same stale-message guard as search updates. While a line is being replayed, the right-hand panel shows that position's facts and nothing else, so the panel and the board never describe different positions.
+
+**Cost** *(measured earlier)*: one Prolog query per step, about 22 ms each on a desktop, at most nine per line. It runs only when asked for.
+
+**Checked.** Engine tests 98, Prolog 67, frontend 67, end-to-end against the real engine (seven new checks for the replay). The tour was driven through all five steps in a browser, including playing the mate and switching levels. Screenshots confirm the tour, the replay, both checkmate treatments, the 3D arrow and the results page.
+
+**Not checked.** The promotion and capture animations were confirmed only by their end states: the screenshot tool cannot catch a frame mid-animation. They need a look by eye, in both views and both motion settings.
+
+**Not built from the plan's list.** "Search beside reasoning" as a single linked view, and puzzle mode. The 3D board still has no fact overlays other than the best-move arrow, no coordinates and no keyboard play; the flat board remains the place for analysis. The 3D render loop still runs continuously.
+
+**Small things found on the way.** The tour's fifth step is honest about how small the Novice difference can look: Novice often plays the same move as Club, and only sometimes a slightly worse one, which is what the level is designed to do.

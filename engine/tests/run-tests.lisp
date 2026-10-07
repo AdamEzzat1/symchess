@@ -322,6 +322,33 @@
                             :key (lambda (i) (jget i "text")) :test #'string=)
                       t))
                t))))
+
+(section "replaying a line")
+(let* ((p (pos-from-fen "r3k3/8/8/1N6/8/8/8/4K3 w - - 0 1"))
+       (fork (parse-uci-move p "b5c7"))
+       (q (let ((q (copy-position p))) (make-move q fork) q))
+       (reply (first (legal-moves q)))
+       (steps (line-replay-steps p (list fork reply)))
+       (before (pos-to-fen p)))
+  (check "one step for the start and one per move" (length steps) 3)
+  (check "the first step is the starting position, with no move"
+         (list (jget (first steps) "fen") (jget (first steps) "move")) (list before :null))
+  (check "each later step names its move and who made it"
+         (list (jget (jget (second steps) "move") "san") (jget (second steps) "by"))
+         (list "Nc7+" "white"))
+  (check "a step reports check on the king's square" (jget (second steps) "check") "e8")
+  (check "the step's board is the position after the move"
+         (jget (jget (second steps) "board") "c7") "wN")
+  (check "the position passed in is left alone" (pos-to-fen p) before)
+  (check "a move that is not legal ends the line there"
+         (length (line-replay-steps p (list fork fork))) 2)
+  (check "a long line is cut to the step limit"
+         (let ((*line-steps* 1)) (length (line-replay-steps p (list fork reply)))) 2))
+(let* ((p (pos-from-fen "6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1"))
+       (steps (line-replay-steps p (list (parse-uci-move p "a1a8")))))
+  (check "a step that ends the game says checkmate and asks Prolog nothing"
+         (list (jget (second steps) "checkmate") (jget (second steps) "facts"))
+         (list :true '())))
 (stop-prolog)
 
 (section "json and websocket primitives")

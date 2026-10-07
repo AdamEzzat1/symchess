@@ -138,6 +138,7 @@ it is the search's best move. Must run with LEVEL's features switched on."
   (clock-black 0)
   (clock-started nil)                   ; NOW-MS when the running clock started
   (search-id 0)
+  (line nil)                            ; the newest explained line: (:sid :pid :pos :pv)
   (stop-flag nil)                       ; (list nil); car set to T to cancel a worker
   (worker nil)
   (thinking nil)
@@ -405,6 +406,42 @@ if it ends the game, or if Prolog is unavailable. Costs one Prolog query."
                   (push fact picked)))
               (nreverse picked))))))))
 
+(defparameter *line-steps* 8
+  "The most moves of a line that LINE-REPLAY-STEPS will walk.")
+
+(defun line-replay-steps (p pv)
+  "The positions along line PV starting from P, as step objects: the first is P
+itself, each later one the position after one more move. Every step carries the
+board and Prolog's facts for it, so the interface can show the line without
+making a move or judging a position itself. One Prolog query per step."
+  (let ((p (copy-position p))
+        (steps '()))
+    (flet ((snapshot (move by)
+             (let* ((over (not (has-legal-move-p p)))
+                    (analysis (and (not over) (symbolic-analysis p))))
+               (push (obj "move" move
+                          "by" by
+                          "fen" (pos-to-fen p)
+                          "board" (board-object p)
+                          "turn" (side-name (pos-side p))
+                          "check" (if (in-check-p p)
+                                      (square-name (king-square p (pos-side p)))
+                                      :null)
+                          "checkmate" (jbool (and over (in-check-p p)))
+                          "symbolic" (jbool analysis)
+                          "facts" (if analysis (jget analysis "facts" '()) '()))
+                     steps))))
+      (snapshot :null :null)
+      (loop for m in pv
+            repeat *line-steps*
+            do (let ((legal (legal-moves p)))
+                 (unless (member m legal) (return))
+                 (let ((move (move-object p m legal))
+                       (by (side-name (pos-side p))))
+                   (make-move p m)
+                   (snapshot move by)))))
+    (nreverse steps)))
+
 (defun build-explanation (p result analysis &optional (purpose :play) note expected)
   (let* ((best (search-result-best-move result))
          (legal (legal-moves p))
@@ -629,6 +666,9 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                (search-info-fields p result))
         (apply #'broadcast "explanation" "positionId" pid "searchId" sid
                (build-explanation p played analysis purpose note expected))
+        ;; Kept so the line can be replayed on request.
+        (setf (game-line g) (list :sid sid :pid pid :pos (copy-position p)
+                                  :pv (search-result-pv played)))
         (when (eq purpose :play)
           (setf (game-thinking g) nil)
           (when (apply-move g (search-result-best-move played) "engine")
@@ -715,6 +755,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
       (setf (game-pos g) p
             (game-start-fen g) (pos-to-fen p)
             (game-records g) '()
+            (game-line g) nil
             (game-status g) "active"
             (game-winner g) nil)
       (incf (game-position-id g))
@@ -843,6 +884,22 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                                 "inReplyTo" (jget msg "id" :null)))))
      :name "symchess-inspect")))
 
+(defun cmd-request-line (g msg)
+  "Replay the line behind an explanation: the client names the search it is
+looking at, and gets nothing if that is no longer the newest one."
+  (let ((line (game-line g))
+        (sid (jget msg "searchId")))
+    (unless (and line (integerp sid) (= sid (getf line :sid)))
+      (protocol-error "stale_line" "That line is no longer the engine's latest."))
+    ;; Several Prolog queries: never hold the state lock while waiting on them.
+    (sb-thread:make-thread
+     (lambda (&aux (*game* g))
+       (broadcast "line_replay"
+                  "positionId" (getf line :pid)
+                  "searchId" sid
+                  "steps" (line-replay-steps (getf line :pos) (getf line :pv))))
+     :name "symchess-line")))
+
 (defun cmd-resign (g)
   (unless (string= (game-status g) "active")
     (protocol-error "game_over" "The game is already over."))
@@ -879,6 +936,7 @@ Returns NIL (and ends the game) if the mover's flag had fallen."
                     ((string= type "set_time_control") (cmd-set-time-control g msg))
                     ((string= type "set_mode") (cmd-set-mode g msg))
                     ((string= type "inspect_square") (cmd-inspect-square g msg))
+                    ((string= type "request_line") (cmd-request-line g msg))
                     ((string= type "resign") (cmd-resign g))
                     (t (protocol-error "unknown_command" "Unknown command type ~S." type))))))
       (protocol-error (e)

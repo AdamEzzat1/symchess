@@ -553,6 +553,15 @@ move hint by Lisp (Prolog has no notation).
 the current position is pushed automatically. Explicit requests are
 `request_analysis` (run a search without moving) and `inspect_square`.
 
+**How React shows a line it cannot play out itself.** `request_line` names a
+search by `searchId`; if that is still the engine's newest explained search,
+Lisp replies with `line_replay`: the starting position and the position after
+each move of the expected line (at most eight), each with its board, check
+square and Prolog's facts. React draws those boards; it never makes a move to
+get them. A step is shown with an empty legal-move list and a negative
+`positionId`, so it can be neither played on nor mistaken for a game position,
+and the reducer drops a line whose `searchId` is not the explanation on screen.
+
 **How visualization elements map to Prolog facts.** One-to-one and by
 construction: a `Viz` object reaches the board only as a member of some fact's,
 plan's or inspection's `viz` array. The single exception is the best-move
@@ -988,6 +997,12 @@ supplied no primitives the board is not dimmed and the card says so.
 switches layers on, starts a search and opens the inspector on an item. It
 only sends commands the UI could send by hand, and it is how the full-size
 verification captures are taken (headless Chrome, 1672 x 941).
+
+Further parameters: `&move=e2e4` plays one move, `&replay=1` (with
+`analyse=1`) opens the line replay, `&pieces=classic|figures|3d` and
+`&motion=expressive|minimal` choose the presentation, `?tour=1` starts the
+guided tour and `?results=1` opens the measured results. The guided tour is the
+same mechanism: each step is a script of ordinary commands (`web/src/demo.ts`).
 
 ### Protocol additions (all optional, backward compatible)
 

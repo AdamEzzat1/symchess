@@ -16,6 +16,10 @@ interface Props {
   interactive: boolean;
   thinking: boolean;
   showHints: boolean;
+  /** Short glides and fades instead of fights and effects. */
+  minimal?: boolean;
+  /** The search's best move, drawn as an arrow lying on the board. */
+  bestMove?: { from: Square; to: Square } | null;
   onMove: (uci: string) => void;
   onSquareClick?: (square: Square) => void;
 }
@@ -78,6 +82,8 @@ interface StatueData {
   hit: number;
   /** How far the body leans back before striking (a horse rears). */
   rear: number;
+  /** A checkmated king: frosted over, and left alone by the idle animation. */
+  frozen?: boolean;
 }
 
 interface Statue extends THREE.Group {
@@ -380,6 +386,25 @@ function createWorld(canvas: HTMLCanvasElement) {
   const ring = new THREE.RingGeometry(0.36, 0.45, 32);
   const hints: THREE.Mesh[] = [];
 
+  // The search's best move: an arrow lying on the board.
+  const bestMaterial = new THREE.MeshBasicMaterial({ color: 0x4aa8ff, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide });
+  let bestArrow: THREE.Mesh | null = null;
+
+  // Checkmate: lines that run in from the edges of the board to the king.
+  const rayMaterial = new THREE.MeshBasicMaterial({ color: 0xbfe9ff, transparent: true, opacity: 0, depthWrite: false });
+  const rays = new THREE.Group();
+  for (let i = 0; i < 8; i++) {
+    const pivot = new THREE.Group();
+    pivot.rotation.y = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const ray = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.05), rayMaterial);
+    ray.rotation.x = -Math.PI / 2;
+    pivot.add(ray);
+    rays.add(pivot);
+  }
+  rays.visible = false;
+  scene.add(rays);
+  let mated: { statue: Statue; positionId: number } | null = null;
+
   const statues = new Map<Square, Statue>();
   let tweens: Tween[] = [];
   let busy = false;
@@ -388,6 +413,7 @@ function createWorld(canvas: HTMLCanvasElement) {
   let selected: Square | null = null;
   let disposed = false;
   let calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let minimal = false;
 
   const tween = (duration: number, step: (k: number) => void, done?: () => void, delay = 0) => {
     tweens.push({ start: performance.now() + delay * SLOW, duration: duration * SLOW, step, done });
@@ -418,6 +444,88 @@ function createWorld(canvas: HTMLCanvasElement) {
       }
       place(statue, square);
     }
+  };
+
+  /** Lay the rays out so each runs from `outer` squares away to just short of the king. */
+  const setRays = (reach: number, opacity: number) => {
+    for (const pivot of rays.children) {
+      const ray = pivot.children[0]!;
+      // Each ray starts where its direction leaves the board.
+      const dx = Math.cos(pivot.rotation.y);
+      const dz = -Math.sin(pivot.rotation.y);
+      const toEdge = (at: number, d: number) => (d > 1e-6 ? (4 - at) / d : d < -1e-6 ? (-4 - at) / d : Infinity);
+      const outer = Math.max(0.5, Math.min(toEdge(rays.position.x, dx), toEdge(rays.position.z, dz)));
+      const inner = outer - (outer - 0.5) * reach;
+      ray.scale.x = Math.max(0.001, outer - inner);
+      ray.position.x = (outer + inner) / 2;
+    }
+    rayMaterial.opacity = opacity;
+  };
+
+  const FROST = new THREE.Color(0xa9bcc8);
+
+  /**
+   * Checkmate, where the engine says the checked king stands: lines converge
+   * on it, and it frosts over and dims. Anything left from an earlier mate is
+   * undone first, so taking a move back thaws the king.
+   */
+  const mate = (game: GameState) => {
+    const square = game.status === 'checkmate' ? game.check : null;
+    const king = square ? statues.get(square) : undefined;
+    if (mated && mated.statue === king && mated.positionId === game.positionId) return;
+    if (mated) {
+      const data = mated.statue.userData;
+      const tone = data.code[0] === 'w' ? ICE : AMETHYST;
+      data.frozen = false;
+      data.material.color.setHex(tone.color);
+      data.material.emissive.setHex(tone.emissive);
+      mated = null;
+    }
+    rays.visible = false;
+    if (!king || !square) return;
+    mated = { statue: king, positionId: game.positionId };
+    const data = king.userData;
+    const tone = data.code[0] === 'w' ? ICE : AMETHYST;
+    const from = new THREE.Color(tone.color);
+    data.frozen = true;
+    const frost = (k: number) => {
+      // A later state may have thawed it while this was still running.
+      if (!data.frozen) return;
+      data.material.color.copy(from).lerp(FROST, 0.75 * k);
+      data.material.emissiveIntensity = tone.rest * (1 - k);
+      king.position.y = 0;
+    };
+    if (calm || minimal) {
+      tween(calm ? 1 : 400, frost);
+      return;
+    }
+    rays.position.copy(squarePosition(square)).setY(0.012);
+    rays.visible = true;
+    setRays(0, 0);
+    tween(700, (k) => setRays(ease(k), 0.9));
+    tween(600, (k) => setRays(1, mix(0.9, 0.22, k)), undefined, 700);
+    tween(900, frost, undefined, 500);
+  };
+
+  /** Promotion: the new piece gathers out of a burst of its own light. */
+  const form = (statue: Statue) => {
+    const glow = statue.userData.code[0] === 'w' ? ICE.glow : AMETHYST.glow;
+    const lightMaterial = new THREE.MeshBasicMaterial({ color: glow, transparent: true, depthWrite: false });
+    const light = new THREE.Mesh(new THREE.SphereGeometry(0.36, 16, 12), lightMaterial);
+    light.position.copy(statue.position).setY(0.5);
+    scene.add(light);
+    tween(
+      560,
+      (k) => {
+        statue.scale.set(mix(0.6, 1, ease(k)), mix(0.15, 1, ease(k)), mix(0.6, 1, ease(k)));
+        light.scale.setScalar(0.4 + k * 1.3);
+        lightMaterial.opacity = 0.8 * (1 - k);
+      },
+      () => {
+        statue.scale.setScalar(1);
+        scene.remove(light);
+      },
+    );
   };
 
   const markers = (game: GameState) => {
@@ -488,9 +596,41 @@ function createWorld(canvas: HTMLCanvasElement) {
     }
   };
 
+  /** A taken piece in the minimal style: no blow, it just fades into a few shards. */
+  const fade = (victim: Statue) => {
+    const material = victim.userData.material;
+    const from = victim.position.clone();
+    const glow = victim.userData.code[0] === 'w' ? ICE.glow : AMETHYST.glow;
+    tween(
+      320,
+      (k) => {
+        material.opacity = 0.94 * (1 - k);
+      },
+      () => scene.remove(victim),
+    );
+    const shard = new THREE.TetrahedronGeometry(0.05);
+    const shardMaterial = new THREE.MeshBasicMaterial({ color: glow, transparent: true });
+    for (let i = 0; i < 8; i++) {
+      const mesh = new THREE.Mesh(shard, shardMaterial);
+      const angle = (i / 8) * Math.PI * 2;
+      const origin = from.clone().setY(0.2 + (i % 4) * 0.12);
+      mesh.position.copy(origin);
+      scene.add(mesh);
+      tween(
+        420,
+        (k) => {
+          mesh.position.set(origin.x + Math.cos(angle) * 0.35 * k, origin.y - 0.15 * k, origin.z + Math.sin(angle) * 0.35 * k);
+          shardMaterial.opacity = 1 - k;
+        },
+        () => scene.remove(mesh),
+      );
+    }
+  };
+
   const finish = (game: GameState) => {
     reconcile(game.board);
     markers(game);
+    mate(game);
     shown = game;
     busy = false;
     if (waiting) {
@@ -591,6 +731,7 @@ function createWorld(canvas: HTMLCanvasElement) {
     if (!continues || !move || !mover) {
       reconcile(game.board);
       markers(game);
+      mate(game);
       shown = game;
       return;
     }
@@ -605,18 +746,78 @@ function createWorld(canvas: HTMLCanvasElement) {
     // The statue keeps its old identity until the engine's board says otherwise
     // (a promotion is swapped in by `reconcile` when the move ends).
     const taken = victim !== undefined && victim.userData.code[0] !== mover.userData.code[0];
-    if (taken && !calm) {
+    // A pawn that arrives as something else has been promoted. `reconcile`
+    // swaps the statue; the expressive style dresses the swap up.
+    const promoted = mover.userData.code[1] === 'P' && game.board[move.to] !== mover.userData.code;
+    const arrived = () => {
+      if (!promoted || calm || minimal) {
+        finish(game);
+        return;
+      }
+      // The pawn dissolves upward, then the new piece forms where it stood.
+      const material = mover.userData.material;
+      tween(
+        380,
+        (k) => {
+          mover.position.copy(to).setY(0.7 * k * k);
+          mover.scale.set(1 - 0.4 * k, 1 + 0.5 * k, 1 - 0.4 * k);
+          material.opacity = 0.94 * (1 - k);
+        },
+        () => {
+          finish(game);
+          const piece = statues.get(move.to);
+          if (piece) form(piece);
+        },
+      );
+    };
+    if (taken && !calm && !minimal && !promoted) {
       fight(mover, victim, from, to, game);
     } else {
-      if (victim) scene.remove(victim);
+      if (victim) {
+        if (calm) scene.remove(victim);
+        else fade(victim);
+      }
+      const quick = calm || minimal;
       tween(
-        calm ? 160 : 420,
+        calm ? 160 : minimal ? 240 : 420,
         (k) => {
-          mover.position.lerpVectors(from, to, ease(k)).setY(calm ? 0 : Math.sin(k * Math.PI) * 0.1);
+          mover.position.lerpVectors(from, to, ease(k)).setY(quick ? 0 : Math.sin(k * Math.PI) * 0.1);
         },
-        () => finish(game),
+        arrived,
       );
     }
+  };
+
+  /** Draw (or clear) the best-move arrow: a flat shape on the board from one square to another. */
+  const setBest = (move: { from: Square; to: Square } | null) => {
+    if (bestArrow) {
+      scene.remove(bestArrow);
+      bestArrow.geometry.dispose();
+      bestArrow = null;
+    }
+    if (!move) return;
+    const a = squarePosition(move.from);
+    const b = squarePosition(move.to);
+    const length = a.distanceTo(b);
+    if (length === 0) return;
+    // An arrow along +x in the shape's own plane, from the centre of one square to the next.
+    const start = 0.32;
+    const neck = length - 0.42;
+    const shape = new THREE.Shape();
+    shape.moveTo(start, -0.07);
+    shape.lineTo(neck, -0.07);
+    shape.lineTo(neck, -0.2);
+    shape.lineTo(length - 0.08, 0);
+    shape.lineTo(neck, 0.2);
+    shape.lineTo(neck, 0.07);
+    shape.lineTo(start, 0.07);
+    shape.closePath();
+    bestArrow = new THREE.Mesh(new THREE.ShapeGeometry(shape), bestMaterial);
+    // Lay it flat, then turn it within the board plane to point at the target.
+    bestArrow.rotation.set(-Math.PI / 2, 0, Math.atan2(-(b.z - a.z), b.x - a.x));
+    bestArrow.position.copy(a).setY(0.014);
+    bestArrow.renderOrder = 2;
+    scene.add(bestArrow);
   };
 
   const select = (square: Square | null, targets: readonly LegalMove[], showHints: boolean) => {
@@ -677,6 +878,7 @@ function createWorld(canvas: HTMLCanvasElement) {
     if (!busy) {
       for (const [square, statue] of statues) {
         const data = statue.userData;
+        if (data.frozen) continue;
         const awake = square === selected ? 1 : 0;
         data.lift += (awake - data.lift) * 0.2;
         statue.position.y = data.lift * 0.16;
@@ -707,8 +909,12 @@ function createWorld(canvas: HTMLCanvasElement) {
     select,
     setCamera,
     squareUnder,
+    setBest,
     setCalm(value: boolean) {
       calm = value;
+    },
+    setMinimal(value: boolean) {
+      minimal = value;
     },
     dispose() {
       disposed = true;
@@ -717,7 +923,17 @@ function createWorld(canvas: HTMLCanvasElement) {
   };
 }
 
-export default function Board3D({ game, orientation, interactive, thinking, showHints, onMove, onSquareClick }: Props) {
+export default function Board3D({
+  game,
+  orientation,
+  interactive,
+  thinking,
+  showHints,
+  minimal = false,
+  bestMove = null,
+  onMove,
+  onSquareClick,
+}: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const world = useRef<ReturnType<typeof createWorld> | null>(null);
@@ -757,8 +973,18 @@ export default function Board3D({ game, orientation, interactive, thinking, show
   }, [game.positionId]);
 
   useEffect(() => {
+    world.current?.setMinimal(minimal);
+  }, [minimal, failed]);
+
+  useEffect(() => {
     world.current?.show(game);
   }, [game]);
+
+  const bestFrom = bestMove?.from ?? null;
+  const bestTo = bestMove?.to ?? null;
+  useEffect(() => {
+    world.current?.setBest(bestFrom && bestTo ? { from: bestFrom, to: bestTo } : null);
+  }, [bestFrom, bestTo, failed]);
 
   useEffect(() => {
     world.current?.select(selected, targets, showHints);

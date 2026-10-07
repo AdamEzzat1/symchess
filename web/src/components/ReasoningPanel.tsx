@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { PanelTab } from '../demo';
 import type { ClientCommand, Color, Fact, GameState, Plan } from '../protocol';
 import { selectFocus, verdictFor, type Highlight } from '../selectViz';
 import type { AppState } from '../state';
@@ -8,7 +9,7 @@ import { MiniBoard } from './MiniBoard';
 import { TONE } from './Overlays';
 import { formatScore } from './SearchTrace';
 
-type Tab = 'reasoning' | 'plan' | 'variations' | 'facts';
+type Tab = PanelTab;
 const TABS: { id: Tab; label: string }[] = [
   { id: 'reasoning', label: 'Reasoning' },
   { id: 'plan', label: 'Plan' },
@@ -23,7 +24,7 @@ interface Look {
   color: string;
 }
 
-const KIND: Record<string, Look> = {
+export const KIND: Record<string, Look> = {
   check: { title: 'Check', icon: 'target', color: TONE.threat },
   pin: { title: 'Pin', icon: 'link', color: TONE.pin },
   skewer: { title: 'Skewer', icon: 'link', color: TONE.pin },
@@ -50,7 +51,7 @@ const KIND: Record<string, Look> = {
   pawn_break: { title: 'Pawn break', icon: 'files', color: TONE.pv },
   unstoppable_pawn: { title: 'Unstoppable pawn', icon: 'files', color: TONE.defend },
 };
-const UNKNOWN_KIND: Look = { title: 'Fact', icon: 'grid', color: TONE.neutral };
+export const UNKNOWN_KIND: Look = { title: 'Fact', icon: 'grid', color: TONE.neutral };
 const PLAN_LOOK: Look = { title: 'Candidate plan', icon: 'nodes', color: TONE.pv };
 
 const USE_LABEL: Record<string, string> = {
@@ -89,6 +90,11 @@ interface Props {
   selected: Highlight;
   onHover: (h: Highlight) => void;
   onSelect: (h: Highlight) => void;
+  tab: Tab;
+  onTab: (tab: Tab) => void;
+  /** Ask the engine for the line behind this search's explanation and step through it. */
+  onReplay: (searchId: number) => void;
+  replayPending: boolean;
   send: (command: ClientCommand) => void;
   engineUrl: string;
 }
@@ -102,12 +108,26 @@ export function ReasoningPanel({
   selected,
   onHover,
   onSelect,
+  tab,
+  onTab: setTab,
+  onReplay,
+  replayPending,
   send,
   engineUrl,
 }: Props) {
   const { symbolic, explanation, inspection, search } = state;
-  const [tab, setTab] = useState<Tab>('reasoning');
   const [fen, setFen] = useState('');
+
+  const replayButton = explanation && (
+    <button
+      type="button"
+      className="btn btn-small btn-replay"
+      disabled={replayPending}
+      onClick={() => onReplay(explanation.searchId)}
+    >
+      {replayPending ? 'Fetching the line…' : `Why ${explanation.move.san}? Step through the line`}
+    </button>
+  );
 
   const current = analysisMode && symbolic?.positionId === game.positionId;
   const facts: Fact[] = current ? symbolic.facts : [];
@@ -214,8 +234,12 @@ export function ReasoningPanel({
 
   const empty = (text: string) => <p className="quiet pad">{text}</p>;
   const symbolicNote =
-    symbolic === null
-      ? empty('Waiting for the knowledge layer…')
+    game.status !== 'active'
+      ? symbolic === null
+        ? empty('The game is over, so there is no position left to analyse.')
+        : null
+      : symbolic === null
+        ? empty('Waiting for the knowledge layer…')
       : symbolic.status === 'unavailable'
         ? empty('Knowledge layer unavailable. The engine is running on search alone.')
         : null;
@@ -360,6 +384,7 @@ export function ReasoningPanel({
                         </li>
                       ))}
                     </ul>
+                    {replayButton}
                   </section>
                 )}
 
@@ -397,7 +422,9 @@ export function ReasoningPanel({
             <section className="block">
               <h3>Last engine move</h3>
               <p className="summary">{explanation.summary}</p>
-              <p className="quiet">Switch to Analysis for the reasoning.</p>
+              {explanation.items[0] && <p className="play-note">{explanation.items[0].text}</p>}
+              {replayButton}
+              <p className="quiet">Switch to Analysis for the full reasoning.</p>
             </section>
           )}
           <section className="block">

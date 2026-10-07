@@ -210,6 +210,18 @@ check('the explanation opens by naming the level', noviceExplanation.items[0].te
 check('the explanation is about the move the engine actually played', noviceExplanation.move.uci === noviceMove.move.uci);
 await until((m) => m.type === 'game_state' && m.history.length === 2, 'state after novice reply');
 
+console.log('replaying a line');
+send({ type: 'request_line', searchId: -1 });
+check('a line that is not the latest is refused', (await until(ofType('error'), 'stale line')).code === 'stale_line');
+send({ type: 'request_line', searchId: noviceExplanation.searchId });
+const replay = await until(ofType('line_replay'), 'line replay');
+check('the line answers the search that was named', replay.searchId === noviceExplanation.searchId);
+check('it starts from the position before the move, with no move', replay.steps[0].move === null && replay.positionId === noviceExplanation.positionId);
+check('its first move is the move that was explained', replay.steps[1].move.uci === noviceExplanation.move.uci);
+check('every step carries a board and Prolog facts', replay.steps.every((s) => typeof s.board === 'object' && Array.isArray(s.facts) && s.symbolic === true));
+check('sides alternate along the line', replay.steps.slice(1).every((s, i) => s.by === (i % 2 === 0 ? 'black' : 'white')));
+check('asking for a line does not change the game', (await (send({ type: 'sync' }), until(ofType('game_state'), 'sync'))).positionId === game.positionId + 2);
+
 // leave the engine in a clean default state for the UI
 send({ type: 'set_level', level: 'club' });
 send({ type: 'new_game', humanColor: 'white', mode: 'play' });

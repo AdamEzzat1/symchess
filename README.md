@@ -56,6 +56,24 @@ The engine plays at one of three levels, chosen under **Game** in the left rail.
 
 Analysis always runs at full strength.
 
+## Guided tour, replay and results
+
+- **Take the one-minute tour** (button under the title, or `?tour=1`): five
+  prepared positions, each showing one idea: a pin Prolog found, the search
+  confirming and overruling Prolog's suggestions, the engine's line played
+  forward, a plan built from a fact, and the three difficulty levels on one
+  position. The captions only say what to look at; everything on screen is
+  what the engine and Prolog actually answered.
+- **Why this move?** After any search, "Step through the line" plays the
+  engine's expected line on the board one position at a time, with Prolog's
+  facts for each. The engine sends those positions; the page never makes a move
+  itself.
+- **Measured results** (bottom of the left rail, or `?results=1`): the
+  self-play and benchmark figures, including the experiment that showed
+  Prolog's hints did not help the search.
+- **Motion**: Expressive (strikes, checkmate and promotion effects) or Minimal
+  (short glides and fades). Devices that ask for reduced motion get neither.
+
 ## Piece styles
 
 The **Pieces** switch in the left rail changes how the game is drawn. It is presentation only; the engine never hears of it.

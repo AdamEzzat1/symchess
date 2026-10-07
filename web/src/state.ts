@@ -55,6 +55,8 @@ export interface AppState {
   symbolic: MessageOf<'symbolic_analysis'> | null;
   explanation: MessageOf<'explanation'> | null;
   inspection: MessageOf<'inspection'> | null;
+  /** The line behind `explanation`, once asked for. Never outlives it. */
+  line: MessageOf<'line_replay'> | null;
   errors: { key: number; code: string; message: string }[];
   log: LogEntry[];
   /** Set when the server turned this client away rather than failing. */
@@ -71,6 +73,7 @@ export const initialState: AppState = {
   symbolic: null,
   explanation: null,
   inspection: null,
+  line: null,
   errors: [],
   log: [],
   refusal: null,
@@ -106,6 +109,9 @@ export function isStale(state: AppState, message: ServerMessage): boolean {
     case 'search_update':
     case 'search_complete':
       return state.search === null || message.searchId !== state.search.searchId;
+    case 'line_replay':
+      // A line belongs to the explanation on screen and to nothing else.
+      return state.explanation === null || message.searchId !== state.explanation.searchId;
     default:
       return false;
   }
@@ -155,6 +161,7 @@ export function reducer(state: AppState, action: Action): AppState {
         case 'game_state': {
           const moved = state.game === null || state.game.positionId !== m.positionId;
           const wentBack = state.game !== null && m.history.length < state.game.history.length;
+          const keep = keepExplanation(state, m, moved, wentBack);
           return {
             ...base,
             game: m,
@@ -169,7 +176,8 @@ export function reducer(state: AppState, action: Action): AppState {
             // Keep an explanation only for the current position or for the move
             // that was just played from it; anything older would describe a
             // board that is no longer on screen.
-            explanation: keepExplanation(state, m, moved, wentBack) ? state.explanation : null,
+            explanation: keep ? state.explanation : null,
+            line: keep ? state.line : null,
           };
         }
 
@@ -213,7 +221,10 @@ export function reducer(state: AppState, action: Action): AppState {
           return { ...base, symbolic: m };
 
         case 'explanation':
-          return { ...base, explanation: m };
+          return { ...base, explanation: m, line: state.line?.searchId === m.searchId ? state.line : null };
+
+        case 'line_replay':
+          return { ...base, line: m };
 
         case 'inspection':
           return { ...base, inspection: m };

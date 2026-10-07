@@ -145,6 +145,23 @@ export interface ExplanationItem {
   motif?: string | null;
 }
 
+/**
+ * One position along a line the engine expects: the board after `move`, and
+ * what Prolog says about it. The first step of a line has no move.
+ */
+export interface LineStep {
+  move: LegalMove | null;
+  by: Color | null;
+  fen: string;
+  board: Record<Square, PieceCode>;
+  turn: Color;
+  check: Square | null;
+  checkmate: boolean;
+  /** False when Prolog was not asked (the game is over) or did not answer. */
+  symbolic: boolean;
+  facts: Fact[];
+}
+
 export type ServerMessage =
   | {
       type: 'hello';
@@ -220,6 +237,15 @@ export type ServerMessage =
       lines: string[];
       viz: Viz[];
     }
+  | {
+      /** The line behind an explanation, position by position. Sent on request. */
+      type: 'line_replay';
+      seq: number;
+      /** The position the line starts from. */
+      positionId: number;
+      searchId: number;
+      steps: LineStep[];
+    }
   | { type: 'error'; seq: number; code: string; message: string; inReplyTo: number | null };
 
 export type ServerMessageType = ServerMessage['type'];
@@ -237,6 +263,7 @@ export type ClientCommand =
   | { type: 'set_time_control'; baseMs: number | null; incrementMs?: number }
   | { type: 'set_mode'; mode: Mode; humanColor?: Color }
   | { type: 'inspect_square'; square: Square; positionId: number }
+  | { type: 'request_line'; searchId: number }
   | { type: 'resign' };
 
 // ---------------------------------------------------------------- validation
@@ -306,12 +333,15 @@ const searchInfo = {
   pvUci: arr(str),
 };
 
+const board: Check = (v) => isObj(v) && Object.entries(v).every(([k, p]) => square(k) && str(p));
+const fact = shape({ id: str, kind: str, side: nullable(color), squares: arr(square), text: str, viz: arr(viz), use: str });
+
 const validators: Record<ServerMessageType, Check> = {
   hello: shape({ protocol: num, engine: str, lisp: str, prolog: nullable(str) }),
   game_state: shape({
     positionId: num,
     fen: str,
-    board: (v) => isObj(v) && Object.entries(v).every(([k, p]) => square(k) && str(p)),
+    board,
     turn: color,
     moveNumber: num,
     check: nullable(square),
@@ -354,9 +384,7 @@ const validators: Record<ServerMessageType, Check> = {
   symbolic_analysis: shape({
     positionId: num,
     status: oneOf('ok', 'unavailable'),
-    facts: arr(
-      shape({ id: str, kind: str, side: nullable(color), squares: arr(square), text: str, viz: arr(viz), use: str }),
-    ),
+    facts: arr(fact),
     plans: arr(shape({ id: str, kind: str, text: str, because: arr(str), viz: arr(viz) })),
     moveHints: arr(
       shape({
@@ -390,6 +418,23 @@ const validators: Record<ServerMessageType, Check> = {
     attacks: arr(square),
     lines: arr(str),
     viz: arr(viz),
+  }),
+  line_replay: shape({
+    positionId: num,
+    searchId: num,
+    steps: arr(
+      shape({
+        move: nullable(legalMove),
+        by: nullable(color),
+        fen: str,
+        board,
+        turn: color,
+        check: nullable(square),
+        checkmate: bool,
+        symbolic: bool,
+        facts: arr(fact),
+      }),
+    ),
   }),
   error: shape({ code: str, message: str, inReplyTo: nullable(num) }),
 };

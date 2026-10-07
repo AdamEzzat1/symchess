@@ -19,6 +19,8 @@ interface Props {
   /** Presentation switches from the Display panel. */
   showCoords: boolean;
   showHints: boolean;
+  /** Short glides and fades instead of strikes and effects. */
+  minimal?: boolean;
   onMove: (uci: string) => void;
   onSquareClick?: (square: Square) => void;
 }
@@ -40,12 +42,24 @@ interface Arrival {
   dy: number;
   /** It took something: lunge at the end instead of gliding in. */
   strike: boolean;
+  /** The pawn this piece was a moment ago, if the move promoted it. */
+  pawn: PieceCode | null;
 }
 
-function BoardPiece({ code, x, y, lifted, arrive }: { code: string; x: number; y: number; lifted?: boolean; arrive?: Arrival }) {
+interface PieceProps {
+  code: string;
+  x: number;
+  y: number;
+  lifted?: boolean;
+  arrive?: Arrival;
+  /** The king that has been checkmated. */
+  mated?: boolean;
+}
+
+function BoardPiece({ code, x, y, lifted, arrive, mated }: PieceProps) {
   return (
     <g
-      className={lifted ? 'board-piece board-piece-lifted' : 'board-piece'}
+      className={`board-piece${lifted ? ' board-piece-lifted' : ''}${mated ? ' piece-mated' : ''}`}
       transform={`translate(${x + PIECE_INSET} ${y + PIECE_INSET - 2}) scale(${PIECE_SCALE})`}
       pointerEvents="none"
     >
@@ -54,7 +68,20 @@ function BoardPiece({ code, x, y, lifted, arrive }: { code: string; x: number; y
           className={arrive.strike ? 'piece-arrive piece-strike' : 'piece-arrive'}
           style={{ '--fx': `${arrive.dx}px`, '--fy': `${arrive.dy}px` } as CSSProperties}
         >
-          <PieceShape code={code} />
+          {arrive.pawn ? (
+            // Promotion: the pawn arrives, dissolves upward, and the new piece forms from the same light.
+            <>
+              <g className="piece-dissolve">
+                <PieceShape code={arrive.pawn} />
+              </g>
+              <circle className="piece-form-light" cx={50} cy={52} r={34} />
+              <g className="piece-form">
+                <PieceShape code={code} />
+              </g>
+            </>
+          ) : (
+            <PieceShape code={code} />
+          )}
         </g>
       ) : (
         <PieceShape code={code} />
@@ -104,6 +131,40 @@ function TakenPiece({ code, origin, from }: { code: PieceCode; origin: Point; fr
   );
 }
 
+const RAYS = [0, 1, 2, 3, 4, 5, 6, 7];
+
+/**
+ * Checkmate: lines run in from the edges of the board to the king, which
+ * frosts over. Drawn where the engine says the checked king stands.
+ */
+function MateFx({ origin }: { origin: Point }) {
+  const cx = origin.x + CELL / 2;
+  const cy = origin.y + CELL / 2;
+  return (
+    <g className="mate-fx" pointerEvents="none" aria-hidden="true">
+      {RAYS.map((i) => {
+        const angle = (i / RAYS.length) * Math.PI * 2 + Math.PI / 8;
+        // Start well outside the board; the SVG clips it at the edge.
+        const x = cx + Math.cos(angle) * BOARD * 1.5;
+        const y = cy + Math.sin(angle) * BOARD * 1.5;
+        return (
+          <line
+            key={i}
+            className="mate-ray"
+            x1={x}
+            y1={y}
+            x2={cx + Math.cos(angle) * CELL * 0.5}
+            y2={cy + Math.sin(angle) * CELL * 0.5}
+            pathLength={1}
+          />
+        );
+      })}
+      <circle className="mate-frost" cx={cx} cy={cy} r={CELL * 0.5} />
+      <circle className="mate-ring" cx={cx} cy={cy} r={CELL * 0.5} />
+    </g>
+  );
+}
+
 interface PromotionProps {
   options: LegalMove[];
   turn: Color;
@@ -146,6 +207,8 @@ interface MoveFx {
   to: Square;
   /** The piece that stood on `to` and was taken, if any. */
   taken: PieceCode | null;
+  /** The pawn that moved, if a different piece now stands where it arrived. */
+  pawn: PieceCode | null;
 }
 
 export function Board({
@@ -157,6 +220,7 @@ export function Board({
   thinking,
   showCoords,
   showHints,
+  minimal = false,
   onMove,
   onSquareClick,
 }: Props) {
@@ -194,6 +258,7 @@ export function Board({
       from: move.from,
       to: move.to,
       taken: victim && victim[0] !== mover[0] ? victim : null,
+      pawn: mover[1] === 'P' && game.board[move.to] !== mover ? mover : null,
     });
   }, [game.positionId, game.board, game.lastMove]);
 
@@ -298,6 +363,9 @@ export function Board({
     return `${square}, ${piece}${flags ? `, ${flags}` : ''}`;
   };
 
+  // The engine names the checked king's square and says when it is mate.
+  const mate = game.status === 'checkmate' ? game.check : null;
+
   // Glass inspector: dim everything except the squares the evidence names.
   // If the item supplied nothing to draw, the board is left alone.
   const inspecting = focus !== null && focus.viz.length > 0;
@@ -312,7 +380,9 @@ export function Board({
     : null;
 
   return (
-    <div className={`board-frame${thinking ? ' board-thinking' : ''}${showCoords ? ' board-with-coords' : ''}`}>
+    <div
+      className={`board-frame${thinking ? ' board-thinking' : ''}${showCoords ? ' board-with-coords' : ''}${minimal ? ' board-minimal' : ''}`}
+    >
       {showCoords && (
         <div className="board-ranks" aria-hidden="true">
           {ranks.map((r) => (
@@ -366,6 +436,7 @@ export function Board({
           const code = game.board[square];
           if (!code || (drag?.moved && drag.from === square)) return null;
           const o = squareOrigin(square, orientation);
+          const mated = mate !== null && mate === square;
           if (fx && fx.positionId === game.positionId && fx.to === square) {
             const start = squareOrigin(fx.from, orientation);
             return (
@@ -374,12 +445,15 @@ export function Board({
                 code={code}
                 x={o.x}
                 y={o.y}
-                arrive={{ dx: start.x - o.x, dy: start.y - o.y, strike: fx.taken !== null }}
+                arrive={{ dx: start.x - o.x, dy: start.y - o.y, strike: fx.taken !== null, pawn: fx.pawn }}
+                mated={mated}
               />
             );
           }
-          return <BoardPiece key={`p-${square}`} code={code} x={o.x} y={o.y} />;
+          return <BoardPiece key={`p-${square}`} code={code} x={o.x} y={o.y} mated={mated} />;
         })}
+
+        {mate && <MateFx key={`mate-${game.positionId}`} origin={squareOrigin(mate, orientation)} />}
 
         {fx && fx.taken && fx.positionId === game.positionId && (
           <TakenPiece key={`x-${fx.positionId}`} code={fx.taken} origin={squareOrigin(fx.to, orientation)} from={squareOrigin(fx.from, orientation)} />

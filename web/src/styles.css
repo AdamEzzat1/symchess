@@ -644,6 +644,42 @@ select,
   stroke: #b9a2ff;
 }
 
+/* Promotion and checkmate. Without motion: the new piece simply stands
+   there, and the mated king is dimmed under frost. */
+.piece-dissolve,
+.piece-form-light {
+  opacity: 0;
+}
+.piece-form-light {
+  fill: #d9f6ff;
+  transform-origin: 50px 52px;
+}
+.piece-mated {
+  filter: saturate(0.25) brightness(0.62);
+}
+.mate-ray {
+  stroke: #bfe9ff;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  opacity: 0.22;
+}
+.mate-frost {
+  fill: #dff5ff;
+  opacity: 0.3;
+}
+.mate-ring {
+  fill: none;
+  stroke: #dff5ff;
+  stroke-width: 3;
+  opacity: 0.7;
+}
+.board-minimal .mate-ray,
+.board-minimal .mate-frost,
+.board-minimal .mate-ring {
+  display: none;
+}
+
 .sq-light {
   fill: var(--board-light);
 }
@@ -1380,6 +1416,55 @@ select,
   .piece-shard {
     animation: piece-shard 520ms ease-out 450ms both;
   }
+  .piece-dissolve {
+    animation: piece-dissolve 520ms ease-in 260ms both;
+  }
+  .piece-form {
+    transform-origin: 50px 90px;
+    animation: piece-form 520ms cubic-bezier(0.2, 0.9, 0.3, 1.2) 560ms both;
+  }
+  .piece-form-light {
+    animation: piece-form-light 700ms ease-out 420ms both;
+  }
+  .piece-mated {
+    animation: piece-mated 900ms ease-out 500ms both;
+  }
+  .mate-ray {
+    animation: mate-ray 700ms cubic-bezier(0.5, 0, 0.2, 1) both;
+  }
+  .mate-frost {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: mate-frost 800ms ease-out 550ms both;
+  }
+  .mate-ring {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: mate-ring 900ms ease-out 550ms both;
+  }
+  /* Minimal: a short glide, and a taken piece just fades into a few shards. */
+  .board-minimal .piece-arrive,
+  .board-minimal .piece-strike {
+    animation: piece-arrive 180ms ease-out both;
+  }
+  .board-minimal .piece-slash,
+  .board-minimal .piece-impact,
+  .board-minimal .piece-dissolve,
+  .board-minimal .piece-form-light {
+    animation: none;
+  }
+  .board-minimal .piece-form {
+    animation: none;
+  }
+  .board-minimal .piece-taken {
+    animation: fade-out 260ms ease-out both;
+  }
+  .board-minimal .piece-shard {
+    animation: piece-shard 360ms ease-out both;
+  }
+  .board-minimal .piece-mated {
+    animation: piece-mated 400ms ease-out both;
+  }
   .board-thinking {
     animation: think 2.4s ease-in-out infinite;
   }
@@ -1531,4 +1616,293 @@ select,
     opacity: 0;
     transform: translate(var(--sx), var(--sy));
   }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+/* Promotion: the pawn rises and thins out... */
+@keyframes piece-dissolve {
+  0% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-34px) scale(0.85, 1.25);
+  }
+}
+/* ...and the new piece gathers out of the same light. */
+@keyframes piece-form {
+  0% {
+    opacity: 0;
+    transform: scale(0.7, 0.5);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes piece-form-light {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  40% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+/* Checkmate: lines run in to the king, which frosts over and dims. */
+@keyframes mate-ray {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0.9;
+  }
+  70% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.22;
+  }
+}
+@keyframes mate-frost {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  100% {
+    opacity: 0.3;
+    transform: none;
+  }
+}
+@keyframes mate-ring {
+  0% {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+  100% {
+    opacity: 0.7;
+    transform: none;
+  }
+}
+@keyframes piece-mated {
+  from {
+    filter: none;
+  }
+  to {
+    filter: saturate(0.25) brightness(0.62);
+  }
+}
+
+/* ------------------------------------------------- tour, replay, results */
+.btn-tour {
+  margin-top: 10px;
+  width: 100%;
+  border-color: var(--pv);
+  color: var(--text);
+  background: rgb(74 168 255 / 12%);
+}
+.btn-tour:hover:not(:disabled) {
+  background: rgb(74 168 255 / 22%);
+}
+.btn-on {
+  border-color: var(--pv);
+  background: rgb(74 168 255 / 18%);
+}
+.rail-link {
+  margin-top: 6px;
+  align-self: flex-start;
+}
+.rail-section > .mode-switch + .mode-switch {
+  margin-top: 6px;
+}
+.tour {
+  width: 100%;
+  border: 1px solid var(--pv);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(74 168 255 / 10%), rgb(74 168 255 / 4%));
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+}
+.tour-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tour-count {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pv);
+}
+.tour-title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-weight: 400;
+}
+.tour-text {
+  margin: 0;
+  line-height: 1.5;
+  max-width: 68ch;
+}
+.tour-actions,
+.tour-levels {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tour-spacer {
+  flex: 1;
+}
+.replay-chip {
+  margin: 0;
+  align-self: center;
+  padding: 3px 10px;
+  border: 1px solid var(--weak);
+  border-radius: 999px;
+  color: var(--weak);
+  font-size: 0.78rem;
+}
+.replay-note {
+  margin: 0;
+  padding: 0 16px 10px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.replay-nav {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+.replay-steps {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.replay-step {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.replay-step:hover {
+  border-color: var(--pv);
+}
+.replay-step-on {
+  border-color: var(--pv);
+  background: rgb(74 168 255 / 20%);
+}
+.replay-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.btn-replay {
+  margin-top: 10px;
+}
+.play-note {
+  margin: 6px 0 0;
+  line-height: 1.45;
+}
+.sheet {
+  margin: auto;
+  overflow: auto;
+  width: min(880px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+}
+.sheet::backdrop {
+  background: rgb(4 8 12 / 70%);
+}
+.sheet-body {
+  padding: 20px 22px 24px;
+  display: grid;
+  gap: 14px;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sheet-head h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 400;
+}
+.sheet-section h3 {
+  margin: 8px 0 4px;
+  font-size: 1rem;
+}
+.sheet-section p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+  max-width: 76ch;
+}
+.sheet-scroll {
+  overflow-x: auto;
+}
+.sheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.sheet-table th,
+.sheet-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sheet-table th:first-child {
+  text-align: left;
+  font-weight: 400;
+}
+.sheet-table thead th {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.sheet-list {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  line-height: 1.5;
 }
