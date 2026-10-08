@@ -273,7 +273,7 @@ manifest.pieces[piece] = {
 if (!previous.blockout && previous.emitter) manifest.pieces[piece].emitter = previous.emitter;
 const sculpted = Object.entries(manifest.pieces).filter(([, entry]) => !entry.blockout).map(([name]) => name);
 manifest.name = 'Sculpted';
-manifest.note = `Sculpted: ${sculpted.join(', ')}. The rest are blockouts of the built-in statues.`;
+manifest.note = sculpted.length === 6 ? 'All six pieces are sculpted models.' : `Sculpted: ${sculpted.join(', ')}. The rest are blockouts of the built-in statues.`;
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
 const final = bounds(vertices);

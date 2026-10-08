@@ -1,6 +1,6 @@
 {
   "name": "Sculpted",
-  "note": "Sculpted: pawn, knight, rook, queen. The rest are blockouts of the built-in statues.",
+  "note": "All six pieces are sculpted models.",
   "pieces": {
     "pawn": {
       "file": "pawn.glb",
@@ -33,8 +33,13 @@
       "scale": 1,
       "yOffset": 0,
       "rotationY": 180,
-      "shading": "flat",
-      "blockout": true
+      "shading": "smooth",
+      "strike": "lightning",
+      "emitter": [
+        0.22,
+        1.24,
+        0.05
+      ]
     },
     "rook": {
       "file": "rook.glb",
@@ -62,8 +67,13 @@
       "scale": 1,
       "yOffset": 0,
       "rotationY": 180,
-      "shading": "flat",
-      "blockout": true
+      "shading": "smooth",
+      "strike": "blast",
+      "emitter": [
+        0,
+        0.75,
+        0
+      ]
     }
   }
 }

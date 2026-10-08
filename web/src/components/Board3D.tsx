@@ -116,7 +116,7 @@ interface StatueData {
   /** How far the body leans back before striking (a horse rears). */
   rear: number;
   /** "sweep": no arm to swing, so the whole figure turns into the blow. "bolt": it strikes from a distance. */
-  strike: 'arm' | 'sweep' | 'bolt' | 'arrow' | 'lance' | 'smash';
+  strike: 'arm' | 'sweep' | 'bolt' | 'arrow' | 'lance' | 'smash' | 'lightning' | 'blast';
   /** Where a bolt leaves the statue, in its own coordinates. */
   emitter: THREE.Vector3;
   /** A checkmated king: frosted over, and left alone by the idle animation. */
@@ -579,6 +579,102 @@ function createWorld(canvas: HTMLCanvasElement) {
     );
   };
 
+  /** Lightning out of the sky onto one point. It forks afresh as it flickers; `onHit` runs as it lands. */
+  const lightning = (end: THREE.Vector3, glow: number, onHit: () => void) => {
+    const paint = (color: number, opacity: number) =>
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
+    const core = paint(0xffffff, 1);
+    const sheath = paint(glow, 0.6);
+    const strand = new THREE.Group();
+    strand.renderOrder = 4;
+    scene.add(strand);
+    const top = end.clone().add(new THREE.Vector3(0.45, 3.4, -0.3));
+    const clear = () => {
+      for (const part of [...strand.children] as THREE.Mesh[]) {
+        strand.remove(part);
+        part.geometry.dispose();
+      }
+    };
+    const fork = () => {
+      clear();
+      const joints = 7;
+      let from = top.clone();
+      for (let i = 1; i <= joints; i++) {
+        const to = top.clone().lerp(end, i / joints);
+        if (i < joints) to.add(new THREE.Vector3((Math.random() - 0.5) * 0.55, 0, (Math.random() - 0.5) * 0.55));
+        for (const [radius, material] of [[0.018, core], [0.06, sheath]] as const) {
+          const part = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 1, 6).translate(0, 0.5, 0), material);
+          part.position.copy(from);
+          part.quaternion.setFromUnitVectors(UP, to.clone().sub(from).normalize());
+          part.scale.set(1, from.distanceTo(to), 1);
+          strand.add(part);
+        }
+        from = to;
+      }
+    };
+    fork();
+    let forks = 1;
+    let landed = false;
+    tween(
+      340,
+      (k) => {
+        const due = Math.min(3, 1 + Math.floor(k * 3));
+        if (due > forks) {
+          forks = due;
+          fork();
+        }
+        if (!landed && k >= 0.12) {
+          landed = true;
+          onHit();
+        }
+        const flicker = (0.55 + 0.45 * Math.abs(Math.sin(k * 40))) * (1 - k * k);
+        core.opacity = flicker;
+        sheath.opacity = 0.6 * flicker;
+      },
+      () => {
+        clear();
+        scene.remove(strand);
+        core.dispose();
+        sheath.dispose();
+      },
+    );
+  };
+
+  /** The enemy bursts where it stands: a white heart, a shell of the striker's colour, a ring across the board. */
+  const burst = (end: THREE.Vector3, glow: number, onHit: () => void) => {
+    const paint = (color: number, opacity: number) =>
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
+    const core = paint(0xffffff, 1);
+    const shell = paint(glow, 0.7);
+    const heart = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), core);
+    const cloud = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), shell);
+    for (const ball of [heart, cloud]) {
+      ball.position.copy(end);
+      ball.scale.setScalar(0.1);
+      ball.renderOrder = 4;
+    }
+    scene.add(heart, cloud);
+    onHit();
+    quake(end.clone().setY(0), glow);
+    tween(
+      440,
+      (k) => {
+        const out = 1 - (1 - k) ** 3;
+        heart.scale.setScalar(0.1 + 0.55 * out);
+        cloud.scale.setScalar(0.15 + 1.05 * out);
+        core.opacity = 1 - k;
+        shell.opacity = 0.7 * (1 - k) ** 2;
+      },
+      () => {
+        scene.remove(heart, cloud);
+        heart.geometry.dispose();
+        cloud.geometry.dispose();
+        core.dispose();
+        shell.dispose();
+      },
+    );
+  };
+
   /**
    * A bow of light with an arrow on the string, both pointing along +Z.
    * `draw(w)` pulls the arrow back; `loose` sends it to `end` and runs
@@ -671,6 +767,10 @@ function createWorld(canvas: HTMLCanvasElement) {
     // A thrower rears back and hurls itself forward; an archer or a caster barely moves.
     const back = thrower ? -0.3 : -0.13;
     const fore = thrower ? 0.3 : 0.12;
+    // "blast": the light is not at a staff but all about the figure, which burns far brighter.
+    const blast = data.strike === 'blast';
+    const aura = blast ? 5.5 : 1;
+    const shine = blast ? 1.3 : 0.55;
     const mark = victim.position.clone().setY(archer ? 0.45 : 0.55);
     const hold = () => {
       if (!archer) return;
@@ -700,10 +800,10 @@ function createWorld(canvas: HTMLCanvasElement) {
           const w = ease(k / 0.66);
           pose(mover, yaw, along, back * w);
           mover.position.copy(stand).setY(0.09 * w);
-          data.material.emissiveIntensity = tone.rest + 0.55 * w;
+          data.material.emissiveIntensity = tone.rest + shine * w;
           orb.position.copy(staff());
-          orb.scale.setScalar(0.25 + 1.05 * w + 0.07 * Math.sin(k * 60));
-          charge.opacity = 0.95 * w;
+          orb.scale.setScalar((0.25 + 1.05 * w + 0.07 * Math.sin(k * 60)) * aura);
+          charge.opacity = (blast ? 0.3 : 0.95) * w;
           hold();
           archer?.draw(w);
         } else {
@@ -716,14 +816,16 @@ function createWorld(canvas: HTMLCanvasElement) {
             const hit = () => shatter(victim, victimYaw, along);
             hold();
             if (archer) archer.loose(mark, hit);
+            else if (data.strike === 'lightning') lightning(mark, tone.glow, hit);
+            else if (blast) burst(mark, tone.glow, hit);
             else bolt(staff(), mark, tone.glow, hit);
           }
           hold();
           archer?.fade(h);
           orb.position.copy(staff());
-          orb.scale.setScalar(Math.max(0.01, 1.3 * (1 - h)));
-          charge.opacity = 0.95 * (1 - h);
-          data.material.emissiveIntensity = tone.rest + 0.55 * (1 - h);
+          orb.scale.setScalar(Math.max(0.01, 1.3 * (1 - h)) * aura);
+          charge.opacity = (blast ? 0.3 : 0.95) * (1 - h);
+          data.material.emissiveIntensity = tone.rest + shine * (1 - h);
         }
       },
       () => {
@@ -844,7 +946,7 @@ function createWorld(canvas: HTMLCanvasElement) {
    */
   const fight = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
     const data = mover.userData;
-    if (data.strike === 'bolt' || data.strike === 'arrow' || data.strike === 'lance') {
+    if (data.strike === 'bolt' || data.strike === 'arrow' || data.strike === 'lance' || data.strike === 'lightning' || data.strike === 'blast') {
       cast(mover, victim, from, to, game);
       return;
     }

@@ -38,9 +38,11 @@ export interface PieceSpec {
    * How it delivers a blow: "arm" swings the weapon arm, "sweep" turns the
    * whole figure, "bolt" sends a bolt of light from `emitter`, "arrow" draws a
    * bow of light there and shoots, "lance" throws a lance of light from
-   * there, "smash" brings the whole figure down on the enemy. Default "arm".
+   * there, "smash" brings the whole figure down on the enemy, "lightning"
+   * lights the staff at `emitter` and strikes the enemy from the sky, "blast"
+   * makes the figure glow and the enemy burst. Default "arm".
    */
-  strike?: 'arm' | 'sweep' | 'bolt' | 'arrow' | 'lance' | 'smash';
+  strike?: 'arm' | 'sweep' | 'bolt' | 'arrow' | 'lance' | 'smash' | 'lightning' | 'blast';
   /** Where a bolt leaves the model, as [x, y, z] in the model file's own coordinates: the head of a staff, say. */
   emitter?: [number, number, number];
 }
@@ -80,7 +82,7 @@ export function readManifest(value: unknown): Manifest {
     for (const field of ['scale', 'yOffset', 'rotationY', 'windup', 'hit', 'rear'] as const) {
       if (spec[field] !== undefined && !Number.isFinite(spec[field])) throw new Error(`${key}: ${field} is not a number`);
     }
-    if (spec.strike !== undefined && !['arm', 'sweep', 'bolt', 'arrow', 'lance', 'smash'].includes(spec.strike as string)) throw new Error(`${key}: strike must be one of "arm", "sweep", "bolt", "arrow", "lance", "smash"`);
+    if (spec.strike !== undefined && !['arm', 'sweep', 'bolt', 'arrow', 'lance', 'smash', 'lightning', 'blast'].includes(spec.strike as string)) throw new Error(`${key}: strike must be one of "arm", "sweep", "bolt", "arrow", "lance", "smash", "lightning", "blast"`);
     if (spec.emitter !== undefined && !(Array.isArray(spec.emitter) && spec.emitter.length === 3 && spec.emitter.every(Number.isFinite))) throw new Error(`${key}: emitter must be three numbers`);
     if (spec.scale !== undefined && (spec.scale as number) <= 0) throw new Error(`${key}: scale must be positive`);
     pieces[key as PieceName] = spec as unknown as PieceSpec;

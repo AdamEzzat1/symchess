@@ -64,7 +64,7 @@ describe('a statue written as .glb and read back', () => {
     const caster = await sculptureFromGlb(bytesOf('B', 'bishop'), { ...exported('bishop.glb'), strike: 'bolt', emitter: [-0.3, 1.3, 0.1] }, built);
     expect(caster.strike).toBe('bolt');
     expect(readManifest({ pieces: { pawn: { file: 'pawn.glb', strike: 'arrow', emitter: [0, 0.5, 0.2] } } }).pieces.pawn!.strike).toBe('arrow');
-    for (const strike of ['lance', 'smash'] as const) expect(readManifest({ pieces: { rook: { file: 'rook.glb', strike } } }).pieces.rook!.strike).toBe(strike);
+    for (const strike of ['lance', 'smash', 'lightning', 'blast'] as const) expect(readManifest({ pieces: { rook: { file: 'rook.glb', strike } } }).pieces.rook!.strike).toBe(strike);
     expect(caster.emitter!.x).toBeCloseTo(0.3, 5);
     expect(caster.emitter!.y).toBeCloseTo(1.3, 5);
     expect(caster.emitter!.z).toBeCloseTo(-0.1, 5);
