@@ -65,6 +65,8 @@ function squareFromPoint(p: THREE.Vector3): Square | null {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+/** A fight plays at 80% speed: its timings below are written at full speed and stretched by this. */
+const FIGHT_PACE = 1.25;
 const mix = (a: number, b: number, k: number) => a + (b - a) * k;
 const ease = (k: number) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
 
@@ -275,8 +277,10 @@ function createWorld(canvas: HTMLCanvasElement) {
   let calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let minimal = false;
 
+  /** Stretches every animation while a fight plays, so a blow can be followed by eye. */
+  let pace = 1;
   const tween = (duration: number, step: (k: number) => void, done?: () => void, delay = 0) => {
-    tweens.push({ start: performance.now() + delay * SLOW, duration: duration * SLOW, step, done });
+    tweens.push({ start: performance.now() + delay * SLOW * pace, duration: duration * SLOW * pace, step, done });
     wake();
   };
 
@@ -735,7 +739,7 @@ function createWorld(canvas: HTMLCanvasElement) {
 
   /**
    * Turn to face the enemy and close in; draw the weapon back; strike, fast;
-   * then lower the weapon and take the square. A little over a second.
+   * then lower the weapon and take the square. About a second and a half at the fight's pace.
    */
   const fight = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
     const data = mover.userData;
@@ -883,7 +887,9 @@ function createWorld(canvas: HTMLCanvasElement) {
         },
       );
     };
+    pace = 1;
     if (taken && !calm && !minimal && !promoted) {
+      pace = FIGHT_PACE;
       fight(mover, victim, from, to, game);
     } else {
       if (victim) {
