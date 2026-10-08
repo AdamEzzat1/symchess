@@ -63,6 +63,7 @@ describe('a statue written as .glb and read back', () => {
     // A bolt leaves from a point given in the model file's coordinates, which are turned with the model.
     const caster = await sculptureFromGlb(bytesOf('B', 'bishop'), { ...exported('bishop.glb'), strike: 'bolt', emitter: [-0.3, 1.3, 0.1] }, built);
     expect(caster.strike).toBe('bolt');
+    expect(readManifest({ pieces: { pawn: { file: 'pawn.glb', strike: 'arrow', emitter: [0, 0.5, 0.2] } } }).pieces.pawn!.strike).toBe('arrow');
     expect(caster.emitter!.x).toBeCloseTo(0.3, 5);
     expect(caster.emitter!.y).toBeCloseTo(1.3, 5);
     expect(caster.emitter!.z).toBeCloseTo(-0.1, 5);

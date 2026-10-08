@@ -5,7 +5,7 @@ How a sculpted 3D chess piece gets from a modelling program onto the SymChess 3D
 ## Where this stands
 
 - **Built:** the import path. The 3D board can load a `.glb` model for each piece type, paint it in the side's glass, and animate it exactly as it animates the built-in statues. A switch under Pieces chooses between **Built-in** and **Models**.
-- **One sculpted model so far: the queen.** It was generated outside the project with an image-to-3D tool (Meshy) and prepared with `npm run prepare-model` (below): 983,426 triangles and 34 MB of textures became 19,994 triangles and 469 KB, painted in the board's own glass. It is one lump: it has no separate weapon arm and no glowing parts.
+- **Two sculpted models so far: the queen and the pawn.** The pawn (a soldier with sword and shield) went from 857,230 triangles and 30.7 MB to 5,000 triangles and 118 KB. The queen was generated outside the project with an image-to-3D tool (Meshy) and prepared with `npm run prepare-model` (below): 983,426 triangles and 34 MB of textures became 19,994 triangles and 469 KB, painted in the board's own glass. Each is one lump: it has no separate weapon arm and no glowing parts. The pawn model carries no bow; the bow it shoots with is drawn by the board during the attack.
 - **The other five are blockouts.** Their `.glb` files in `web/public/models/chess/statues/` are the built-in statues, exported by a script. They exist to prove the path works end to end and to give a modeller the right size, pose and pivot to sculpt over. They look the same as the built-in statues, and the line under the board says which pieces are which.
 - **Models is the default** for the 3D board, so a piece with a sculpted model shows it.
 - **The reference picture** (carved stone figures: foot soldier, mounted knight, robed bishop, tower, crowned queen, armoured king) is 2D concept art. It was used as art direction for the built-in statues. It has not been converted into 3D models, and nothing here does that. Getting from that picture to production models is modelling work, described under "Making the models".
@@ -58,8 +58,8 @@ Manifest fields, per piece:
 | `rotationY` | Turns it about the vertical, in degrees. 180 for a model that faces +Z, as glTF models do | 0 |
 | `shading` | `smooth` uses the model's normals; `flat` shows every facet | `smooth` |
 | `arm` | Name of the node that swings as the weapon arm | `arm` |
-| `strike` | `arm` swings the weapon arm. `sweep` is for a model with no arm: the whole figure twists away and whips round, with a bright arc following the swing. `bolt` strikes from a distance: light gathers at `emitter`, a bolt flies to the enemy, and the piece then walks to the square. The queen uses `bolt` | `arm` |
-| `emitter` | Where a bolt leaves the model, as `[x, y, z]` in the model file's own coordinates (the head of a staff, say) | a point in front of the chest |
+| `strike` | `arm` swings the weapon arm. `sweep` is for a model with no arm: the whole figure twists away and whips round, with a bright arc following the swing. `bolt` strikes from a distance: light gathers at `emitter`, a bolt flies to the enemy, and the piece then walks to the square. The queen uses `bolt`. `arrow` is the same at a distance, drawn differently: a bow of light appears at `emitter`, an arrow is drawn and shot, and the piece then walks to the square. The pawns use `arrow`, and shoot a pawn taken en passant where it stands | `arm` |
+| `emitter` | Where a bolt or an arrow leaves the model, as `[x, y, z]` in the model file's own coordinates (the head of a staff, say) | a point in front of the chest |
 | `windup`, `hit`, `rear` | Shoulder angles (radians) for the wind-up and the blow, and how far the body leans back first | the built-in piece's |
 
 ## What a model has to be

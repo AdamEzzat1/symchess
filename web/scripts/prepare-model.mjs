@@ -270,6 +270,7 @@ manifest.pieces[piece] = {
   strike: previous.blockout ? 'sweep' : (previous.strike ?? 'sweep'),
   rear: previous.blockout ? 0.22 : (previous.rear ?? 0.22),
 };
+if (!previous.blockout && previous.emitter) manifest.pieces[piece].emitter = previous.emitter;
 const sculpted = Object.entries(manifest.pieces).filter(([, entry]) => !entry.blockout).map(([name]) => name);
 manifest.name = 'Sculpted';
 manifest.note = `Sculpted: ${sculpted.join(', ')}. The rest are blockouts of the built-in statues.`;

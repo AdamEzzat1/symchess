@@ -1,14 +1,19 @@
 {
   "name": "Sculpted",
-  "note": "Sculpted: queen. The rest are blockouts of the built-in statues.",
+  "note": "Sculpted: pawn, queen. The rest are blockouts of the built-in statues.",
   "pieces": {
     "pawn": {
       "file": "pawn.glb",
       "scale": 1,
       "yOffset": 0,
       "rotationY": 180,
-      "shading": "flat",
-      "blockout": true
+      "shading": "smooth",
+      "strike": "arrow",
+      "emitter": [
+        0,
+        0.52,
+        0.24
+      ]
     },
     "knight": {
       "file": "knight.glb",

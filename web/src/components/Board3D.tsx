@@ -114,7 +114,7 @@ interface StatueData {
   /** How far the body leans back before striking (a horse rears). */
   rear: number;
   /** "sweep": no arm to swing, so the whole figure turns into the blow. "bolt": it strikes from a distance. */
-  strike: 'arm' | 'sweep' | 'bolt';
+  strike: 'arm' | 'sweep' | 'bolt' | 'arrow';
   /** Where a bolt leaves the statue, in its own coordinates. */
   emitter: THREE.Vector3;
   /** A checkmated king: frosted over, and left alone by the idle animation. */
@@ -576,26 +576,97 @@ function createWorld(canvas: HTMLCanvasElement) {
   };
 
   /**
+   * A bow of light with an arrow on the string, both pointing along +Z.
+   * `draw(w)` pulls the arrow back; `loose` sends it to `end` and runs
+   * `onHit` when it lands; `fade(k)` lets the bow go.
+   */
+  const longbow = (glow: number) => {
+    const paint = (color: number, opacity: number) =>
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
+    const wood = paint(glow, 0);
+    const bright = paint(0xffffff, 0);
+    const arc = Math.PI * 0.9;
+    const bow = new THREE.Group();
+    const limbs = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.011, 6, 22, arc).rotateZ(-arc / 2).rotateY(-Math.PI / 2).translate(0, 0, -0.1), wood);
+    const string = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.39, 4).translate(0, 0, -0.07), wood);
+    const arrow = new THREE.Group();
+    arrow.add(
+      new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.36, 6).rotateX(Math.PI / 2), bright),
+      new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.09, 8).rotateX(Math.PI / 2).translate(0, 0, 0.22), wood),
+    );
+    bow.add(limbs, string, arrow);
+    bow.renderOrder = 4;
+    scene.add(bow);
+    const clear = () => {
+      scene.remove(bow, arrow);
+      for (const part of [limbs, string, ...arrow.children] as THREE.Mesh[]) part.geometry.dispose();
+      wood.dispose();
+      bright.dispose();
+    };
+    return {
+      bow,
+      draw: (w: number) => {
+        wood.opacity = 0.9 * w;
+        bright.opacity = 0.95 * w;
+        arrow.position.z = 0.04 - 0.11 * w;
+      },
+      fade: (k: number) => {
+        bow.scale.setScalar(1 - 0.3 * k);
+        limbs.visible = string.visible = k < 1;
+      },
+      loose: (end: THREE.Vector3, onHit: () => void) => {
+        const start = arrow.getWorldPosition(new THREE.Vector3());
+        scene.add(arrow);
+        // Placed now, not on the next frame: it has just left the bow's own frame of reference.
+        arrow.position.copy(start);
+        arrow.lookAt(end);
+        tween(
+          130,
+          (k) => {
+            // A flat shot with the slightest rise, so it reads as thrown weight and not a ray.
+            arrow.position.lerpVectors(start, end, k).setY(mix(start.y, end.y, k) + 0.05 * Math.sin(k * Math.PI));
+            arrow.lookAt(end);
+          },
+          () => {
+            onHit();
+            tween(260, (k) => (wood.opacity = bright.opacity = 0.9 * (1 - k)), clear);
+          },
+        );
+      },
+    };
+  };
+
+  /**
    * A strike from a distance. The statue turns to its enemy, comes no nearer
    * than it must, gathers light at its staff, lets it go, and only then
    * walks to the square it has cleared. It takes as long as any other attack.
    */
   const cast = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
     const data = mover.userData;
-    const along = to.clone().sub(from).normalize();
+    // It faces the enemy, which en passant puts beside the way it will walk.
+    const along = victim.position.clone().sub(from).setY(0).normalize();
     const yaw = yawToward(along);
     const victimYaw = yawToward(along.clone().negate());
     const braced = victim.userData.facing;
     const tone = data.code[0] === 'w' ? ICE : AMETHYST;
     // Near enough that the bolt is short and plainly from this piece; an adjacent enemy is struck from where it stands.
-    const stand = from.clone().addScaledVector(along, Math.max(0, from.distanceTo(to) - 2.4));
+    const stand = from.clone().addScaledVector(to.clone().sub(from).normalize(), Math.max(0, from.distanceTo(to) - 2.4));
     const staff = () => {
       mover.updateMatrixWorld();
       return mover.localToWorld(data.emitter.clone());
     };
+    // An archer draws a bow where a caster gathers an orb. The enemy itself is the mark: en passant takes a pawn that is not on the square moved to.
+    const archer = data.strike === 'arrow' ? longbow(tone.glow) : null;
+    const mark = victim.position.clone().setY(archer ? 0.45 : 0.55);
+    const hold = () => {
+      if (!archer) return;
+      archer.bow.position.copy(staff());
+      archer.bow.rotation.set(0, mover.rotation.y + Math.PI, 0);
+    };
     const charge = new THREE.MeshBasicMaterial({ color: tone.glow, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
     const orb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), charge);
     orb.renderOrder = 4;
+    orb.visible = !archer;
     scene.add(orb);
 
     // 1. Turn to face it. The defender turns to meet the blow.
@@ -619,6 +690,8 @@ function createWorld(canvas: HTMLCanvasElement) {
           orb.position.copy(staff());
           orb.scale.setScalar(0.25 + 1.05 * w + 0.07 * Math.sin(k * 60));
           charge.opacity = 0.95 * w;
+          hold();
+          archer?.draw(w);
         } else {
           const h = (k - 0.66) / 0.34;
           // The recoil: thrown forward into the cast, then settling.
@@ -626,8 +699,13 @@ function createWorld(canvas: HTMLCanvasElement) {
           mover.position.copy(stand).setY(0.09 * (1 - h));
           if (!loosed) {
             loosed = true;
-            bolt(staff(), to.clone().setY(0.55), tone.glow, () => shatter(victim, victimYaw, along));
+            const hit = () => shatter(victim, victimYaw, along);
+            hold();
+            if (archer) archer.loose(mark, hit);
+            else bolt(staff(), mark, tone.glow, hit);
           }
+          hold();
+          archer?.fade(h);
           orb.position.copy(staff());
           orb.scale.setScalar(Math.max(0.01, 1.3 * (1 - h)));
           charge.opacity = 0.95 * (1 - h);
@@ -661,7 +739,7 @@ function createWorld(canvas: HTMLCanvasElement) {
    */
   const fight = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
     const data = mover.userData;
-    if (data.strike === 'bolt') {
+    if (data.strike === 'bolt' || data.strike === 'arrow') {
       cast(mover, victim, from, to, game);
       return;
     }
@@ -769,9 +847,14 @@ function createWorld(canvas: HTMLCanvasElement) {
     markers(game);
     const from = squarePosition(move.from);
     const to = squarePosition(move.to);
-    const victim = statues.get(move.to);
+    // En passant: the pawn taken stands beside the mover, not on the square moved to. A piece that strikes from a distance can shoot it where it stands.
+    const ranged = mover.userData.strike === 'arrow' || mover.userData.strike === 'bolt';
+    const beside = `${move.to[0]}${move.from[1]}` as Square;
+    const passed = ranged && mover.userData.code[1] === 'P' && move.from[0] !== move.to[0] && !statues.has(move.to) && statues.has(beside);
+    const victimAt = passed ? beside : move.to;
+    const victim = statues.get(victimAt);
     statues.delete(move.from);
-    if (victim) statues.delete(move.to);
+    if (victim) statues.delete(victimAt);
     statues.set(move.to, mover);
     // The statue keeps its old identity until the engine's board says otherwise
     // (a promotion is swapped in by `reconcile` when the move ends).
