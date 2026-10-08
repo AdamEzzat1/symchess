@@ -2273,3 +2273,12 @@ select,
   font-size: 0.84rem;
   color: #d9c9a3;
 }
+
+/* Reset: always in view at the top of the rail. It turns warm while it waits for the second click. */
+.reset-game {
+  width: 100%;
+}
+.reset-game-armed {
+  border-color: #d97757;
+  color: #f0b8a4;
+}

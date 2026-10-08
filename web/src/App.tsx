@@ -3,7 +3,7 @@ import { Benchmarks } from './components/Benchmarks';
 import { GameReview } from './components/GameReview';
 import { PgnImport } from './components/PgnImport';
 import { Board } from './components/Board';
-import { Controls, DEFAULT_DISPLAY, OpponentRail, DisplayRail, LayerRail, PlayerBar, type DisplayOptions } from './components/GamePanel';
+import { Controls, DEFAULT_DISPLAY, OpponentRail, ResetGame, DisplayRail, LayerRail, PlayerBar, type DisplayOptions } from './components/GamePanel';
 import { PieceArtContext, SvgDefs } from './components/Pieces';
 import { ReasoningPanel } from './components/ReasoningPanel';
 import { ReplayPanel } from './components/ReplayPanel';
@@ -444,6 +444,7 @@ export function App() {
           )}
         </header>
 
+        {game && <ResetGame game={game} disabled={!online} send={send} />}
         {game && !analysisMode && (
           <OpponentRail
             game={game}

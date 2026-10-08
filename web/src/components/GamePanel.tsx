@@ -260,6 +260,42 @@ interface ControlsProps {
 type OpponentProps = Pick<ControlsProps, 'game' | 'disabled' | 'send' | 'maxDepth' | 'maxMoveTimeMs'>;
 
 /** Who you are playing: the engine's level, in plain sight. It takes effect from the engine's next move. */
+interface ResetProps {
+  game: GameState;
+  disabled: boolean;
+  send: (command: ClientCommand) => void;
+}
+
+/**
+ * Start the game again from the first move, with the same side, level and
+ * mode. Once moves have been played it asks for a second click, so a stray
+ * one does not throw a game away.
+ */
+export function ResetGame({ game, disabled, send }: ResetProps) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = window.setTimeout(() => setArmed(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [armed]);
+  const started = game.history.length > 0;
+  const reset = () => {
+    if (started && !armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
+    send({ type: 'new_game', humanColor: game.settings.humanColor, mode: game.settings.mode });
+  };
+  return (
+    <section className="rail-section" aria-label="Reset the game">
+      <button type="button" className={`btn reset-game${armed ? ' reset-game-armed' : ''}`} onClick={reset} disabled={disabled}>
+        {armed ? 'Click again to reset' : 'Reset game'}
+      </button>
+    </section>
+  );
+}
+
 export function OpponentRail({ game, disabled, send, maxDepth, maxMoveTimeMs }: OpponentProps) {
   const { settings } = game;
   const current = settings.level ?? 'club';

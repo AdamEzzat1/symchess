@@ -1104,13 +1104,31 @@ function createWorld(canvas: HTMLCanvasElement) {
         else fade(victim);
       }
       const quick = calm || minimal;
+      const duration = calm ? 160 : minimal ? 240 : 420;
       tween(
-        calm ? 160 : minimal ? 240 : 420,
+        duration,
         (k) => {
           mover.position.lerpVectors(from, to, ease(k)).setY(quick ? 0 : Math.sin(k * Math.PI) * 0.1);
         },
         arrived,
       );
+      // Castling: the king goes two files and its rook crosses to the square beside it. Which rook, and where it lands, is read off the engine's board.
+      const files = move.to.charCodeAt(0) - move.from.charCodeAt(0);
+      if (mover.userData.code[1] === 'K' && Math.abs(files) === 2) {
+        const rank = move.from[1];
+        const corner = `${files > 0 ? 'h' : 'a'}${rank}` as Square;
+        const beside = `${files > 0 ? 'f' : 'd'}${rank}` as Square;
+        const rook = statues.get(corner);
+        if (rook && game.board[beside] === rook.userData.code && !statues.has(beside)) {
+          statues.delete(corner);
+          statues.set(beside, rook);
+          const start = squarePosition(corner);
+          const end = squarePosition(beside);
+          tween(duration, (k) => {
+            rook.position.lerpVectors(start, end, ease(k)).setY(quick ? 0 : Math.sin(k * Math.PI) * 0.1);
+          });
+        }
+      }
     }
   };
 
