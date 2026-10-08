@@ -5,7 +5,9 @@ How a sculpted 3D chess piece gets from a modelling program onto the SymChess 3D
 ## Where this stands
 
 - **Built:** the import path. The 3D board can load a `.glb` model for each piece type, paint it in the side's glass, and animate it exactly as it animates the built-in statues. A switch under Pieces chooses between **Built-in** and **Models**.
-- **Not built:** sculpted models. There are none in the repository. The six `.glb` files in `web/public/models/chess/statues/` are **blockouts**: the built-in statues, exported by a script. They exist to prove the path works end to end and to give a modeller the right size, pose and pivot to sculpt over. With the switch on Models the board therefore looks the same as with it on Built-in, and the line under the board says so.
+- **One sculpted model so far: the queen.** It was generated outside the project with an image-to-3D tool (Meshy) and prepared with `npm run prepare-model` (below): 983,426 triangles and 34 MB of textures became 19,994 triangles and 469 KB, painted in the board's own glass. It is one lump: it has no separate weapon arm and no glowing parts.
+- **The other five are blockouts.** Their `.glb` files in `web/public/models/chess/statues/` are the built-in statues, exported by a script. They exist to prove the path works end to end and to give a modeller the right size, pose and pivot to sculpt over. They look the same as the built-in statues, and the line under the board says which pieces are which.
+- **Models is the default** for the 3D board, so a piece with a sculpted model shows it.
 - **The reference picture** (carved stone figures: foot soldier, mounted knight, robed bishop, tower, crowned queen, armoured king) is 2D concept art. It was used as art direction for the built-in statues. It has not been converted into 3D models, and nothing here does that. Getting from that picture to production models is modelling work, described under "Making the models".
 
 ## How it works
@@ -19,6 +21,16 @@ A loaded model is turned into the same structure the built-in statues are (a `Sc
 **Fallback.** A piece keeps its built-in statue if the manifest does not list it, its file is missing, or its file cannot be read as a model. If the manifest itself is missing or malformed, every piece stays built-in. The board is never left with a piece missing. The line under the 3D board reports what happened, for example "4 of 6 pieces from models · built-in statue kept for queen, king".
 
 ## Adding a model
+
+**From a raw file out of a sculpting or image-to-3D tool,** which is usually far too heavy and carries textures the board does not use:
+
+```bash
+npm --prefix web run prepare-model -- path/to/raw.glb queen
+```
+
+This strips materials and textures, welds the vertices, cuts the triangle count to the piece's budget, stands the model on the origin at the piece's height (smaller if its base would not fit a square), recomputes smooth normals, writes `web/public/models/chess/statues/queen.glb` and points the manifest at it. Options: `--triangles N`, `--height H` (in squares), `--rotate DEG` (default 180, for a model that faces +Z). It does not separate a weapon arm or mark glowing parts; a model that comes as one lump has neither.
+
+**From a model already made to the requirements below:**
 
 1. Export the model as `web/public/models/chess/statues/<piece>.glb`, where `<piece>` is `pawn`, `knight`, `bishop`, `rook`, `queen` or `king`. One file per piece type: both sides use the same shape.
 2. Point the manifest at it (`web/public/models/chess/statues/manifest.json`):

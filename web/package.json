@@ -15,6 +15,7 @@
     "e2e": "node scripts/e2e.mjs",
     "screenshots": "node scripts/screenshots.mjs",
     "export-statues": "node scripts/export-statues.mjs",
+    "prepare-model": "node scripts/prepare-model.mjs",
     "sessions": "node scripts/sessions.mjs"
   },
   "dependencies": {
@@ -28,6 +29,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/three": "0.186.0",
+    "meshoptimizer": "1.1.1",
     "@vitejs/plugin-react": "6.1.2",
     "typescript": "7.0.2",
     "vite": "8.3.3",

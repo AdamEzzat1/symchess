@@ -76,7 +76,8 @@ function initialStatues(): Statues {
   } catch {
     // Storage can be blocked; the default is fine.
   }
-  return 'built-in';
+  // Models by default: a piece with a sculpted model shows it, and every other piece is its built-in statue anyway.
+  return 'models';
 }
 
 /** How much the pieces act out. Presentation only. */
