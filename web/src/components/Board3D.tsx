@@ -1274,8 +1274,9 @@ function createWorld(canvas: HTMLCanvasElement) {
       look.copy(centre).setY(0.3);
       to.set(centre.x, (2.7 + 1.5 * reach) * distance, centre.z + (3.7 + 1.9 * reach) * side * distance);
     } else if (view === 'play') {
-      to.set(0, 6.2 * distance, 10 * side * distance);
-      look.set(0, -0.2, 0.75 * side);
+      // High enough that the back rank does not hide the pawns in front of it, and close enough that the board fills the frame.
+      to.set(0, 8.7 * distance, 7.1 * side * distance);
+      look.set(0, 0, 0.35 * side);
     } else {
       to.set(0, 10.4 * distance, 6.3 * side * distance);
       look.set(0, 0, 0.45 * side);
