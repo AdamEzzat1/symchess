@@ -58,6 +58,8 @@ Manifest fields, per piece:
 | `rotationY` | Turns it about the vertical, in degrees. 180 for a model that faces +Z, as glTF models do | 0 |
 | `shading` | `smooth` uses the model's normals; `flat` shows every facet | `smooth` |
 | `arm` | Name of the node that swings as the weapon arm | `arm` |
+| `strike` | `arm` swings the weapon arm. `sweep` is for a model with no arm: the whole figure twists away and whips round, with a bright arc following the swing. `bolt` strikes from a distance: light gathers at `emitter`, a bolt flies to the enemy, and the piece then walks to the square. The queen uses `bolt` | `arm` |
+| `emitter` | Where a bolt leaves the model, as `[x, y, z]` in the model file's own coordinates (the head of a staff, say) | a point in front of the chest |
 | `windup`, `hit`, `rear` | Shoulder angles (radians) for the wind-up and the blow, and how far the body leans back first | the built-in piece's |
 
 ## What a model has to be

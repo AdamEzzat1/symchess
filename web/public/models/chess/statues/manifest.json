@@ -40,7 +40,12 @@
       "yOffset": 0,
       "rotationY": 180,
       "shading": "smooth",
-      "rear": 0.3
+      "strike": "bolt",
+      "emitter": [
+        -0.3,
+        1.3,
+        0.1
+      ]
     },
     "king": {
       "file": "king.glb",

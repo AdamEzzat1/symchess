@@ -266,8 +266,9 @@ manifest.pieces[piece] = {
   yOffset: 0,
   rotationY: rotate,
   shading: 'smooth',
-  // One lump with no arm to swing: lean back further before the lunge. Keep any hand-tuned values.
-  rear: previous.blockout ? 0.3 : (previous.rear ?? 0.3),
+  // One lump with no arm to swing: the whole figure turns into the blow. Keep any hand-tuned values.
+  strike: previous.blockout ? 'sweep' : (previous.strike ?? 'sweep'),
+  rear: previous.blockout ? 0.22 : (previous.rear ?? 0.22),
 };
 const sculpted = Object.entries(manifest.pieces).filter(([, entry]) => !entry.blockout).map(([name]) => name);
 manifest.name = 'Sculpted';

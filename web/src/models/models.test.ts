@@ -56,6 +56,16 @@ describe('a statue written as .glb and read back', () => {
     expect([plain.windup, plain.hit, plain.rear]).toEqual([built.windup, built.hit, built.rear]);
     const tuned = await sculptureFromGlb(bytesOf('B', 'bishop'), { ...exported('bishop.glb'), windup: 1, hit: -1, rear: 0 }, built);
     expect([tuned.windup, tuned.hit, tuned.rear]).toEqual([1, -1, 0]);
+    // A model with no arm to swing can be told to turn its whole body into the blow.
+    expect(plain.strike).toBe('arm');
+    const lump = await sculptureFromGlb(bytesOf('B', 'bishop'), { ...exported('bishop.glb'), strike: 'sweep' }, built);
+    expect(lump.strike).toBe('sweep');
+    // A bolt leaves from a point given in the model file's coordinates, which are turned with the model.
+    const caster = await sculptureFromGlb(bytesOf('B', 'bishop'), { ...exported('bishop.glb'), strike: 'bolt', emitter: [-0.3, 1.3, 0.1] }, built);
+    expect(caster.strike).toBe('bolt');
+    expect(caster.emitter!.x).toBeCloseTo(0.3, 5);
+    expect(caster.emitter!.y).toBeCloseTo(1.3, 5);
+    expect(caster.emitter!.z).toBeCloseTo(-0.1, 5);
   });
 });
 
@@ -117,5 +127,7 @@ describe('a manifest', () => {
     expect(() => readManifest({ pieces: { pawn: { file: '../pawn.glb' } } })).toThrow(/beside the manifest/);
     expect(() => readManifest({ pieces: { pawn: { file: 'pawn.glb', scale: 0 } } })).toThrow(/scale/);
     expect(() => readManifest({ pieces: { pawn: { file: 'pawn.glb', rotationY: 'half' } } })).toThrow(/rotationY/);
+    expect(() => readManifest({ pieces: { pawn: { file: 'pawn.glb', strike: 'bite' } } })).toThrow(/strike/);
+    expect(() => readManifest({ pieces: { pawn: { file: 'pawn.glb', strike: 'bolt', emitter: [0, 1] } } })).toThrow(/emitter/);
   });
 });

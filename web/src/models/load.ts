@@ -34,6 +34,13 @@ export interface PieceSpec {
   windup?: number;
   hit?: number;
   rear?: number;
+  /**
+   * How it delivers a blow: "arm" swings the weapon arm, "sweep" turns the
+   * whole figure, "bolt" sends a bolt of light from `emitter`. Default "arm".
+   */
+  strike?: 'arm' | 'sweep' | 'bolt';
+  /** Where a bolt leaves the model, as [x, y, z] in the model file's own coordinates: the head of a staff, say. */
+  emitter?: [number, number, number];
 }
 
 export interface Manifest {
@@ -71,6 +78,8 @@ export function readManifest(value: unknown): Manifest {
     for (const field of ['scale', 'yOffset', 'rotationY', 'windup', 'hit', 'rear'] as const) {
       if (spec[field] !== undefined && !Number.isFinite(spec[field])) throw new Error(`${key}: ${field} is not a number`);
     }
+    if (spec.strike !== undefined && !['arm', 'sweep', 'bolt'].includes(spec.strike as string)) throw new Error(`${key}: strike must be "arm", "sweep" or "bolt"`);
+    if (spec.emitter !== undefined && !(Array.isArray(spec.emitter) && spec.emitter.length === 3 && spec.emitter.every(Number.isFinite))) throw new Error(`${key}: emitter must be three numbers`);
     if (spec.scale !== undefined && (spec.scale as number) <= 0) throw new Error(`${key}: scale must be positive`);
     pieces[key as PieceName] = spec as unknown as PieceSpec;
   }
@@ -141,6 +150,8 @@ export function sculptureFromModel(root: THREE.Object3D, spec: PieceSpec, fallba
     windup: spec.windup ?? fallback.windup,
     hit: spec.hit ?? fallback.hit,
     rear: spec.rear ?? fallback.rear,
+    strike: spec.strike ?? 'arm',
+    emitter: spec.emitter ? new THREE.Vector3(...spec.emitter).applyMatrix4(place) : undefined,
     smooth: (spec.shading ?? 'smooth') === 'smooth',
   };
 }

@@ -22,6 +22,16 @@ export interface Sculpture {
   hit: number;
   /** How far the body leans back before striking. */
   rear: number;
+  /**
+   * How it delivers a blow. "arm" swings the weapon arm (the default). "sweep"
+   * is for a statue with no arm to swing: the whole figure twists away and
+   * whips round, weapon side leading, and a bright arc follows the swing.
+   * "bolt" strikes from a distance: light gathers at `emitter` and a bolt of
+   * it flies to the enemy.
+   */
+  strike?: 'arm' | 'sweep' | 'bolt';
+  /** Where a bolt leaves the statue (the head of a staff, say), in the statue's own coordinates. */
+  emitter?: THREE.Vector3;
   /** Shade with the model's own normals, not facet by facet. Sculpted models set this. */
   smooth?: boolean;
 }

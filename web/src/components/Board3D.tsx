@@ -113,6 +113,10 @@ interface StatueData {
   hit: number;
   /** How far the body leans back before striking (a horse rears). */
   rear: number;
+  /** "sweep": no arm to swing, so the whole figure turns into the blow. "bolt": it strikes from a distance. */
+  strike: 'arm' | 'sweep' | 'bolt';
+  /** Where a bolt leaves the statue, in its own coordinates. */
+  emitter: THREE.Vector3;
   /** A checkmated king: frosted over, and left alone by the idle animation. */
   frozen?: boolean;
 }
@@ -157,7 +161,7 @@ function buildStatue(code: PieceCode, shape: Sculpture): Statue {
 
   const facing = white ? 0 : Math.PI;
   group.rotation.y = facing;
-  group.userData = { code, material, facing, lift: 0, shine: 0, arm, windup: shape.windup, hit: shape.hit, rear: shape.rear };
+  group.userData = { code, material, facing, lift: 0, shine: 0, arm, windup: shape.windup, hit: shape.hit, rear: shape.rear, strike: shape.strike ?? 'arm', emitter: shape.emitter ?? new THREE.Vector3(0, 1.2, -0.15) };
   return group;
 }
 
@@ -505,18 +509,175 @@ function createWorld(canvas: HTMLCanvasElement) {
     }
   };
 
+  /** The bright arc a sweeping blow leaves in the air, in the striker's own light. */
+  const slash = (at: THREE.Vector3, along: THREE.Vector3, glow: number) => {
+    const material = new THREE.MeshBasicMaterial({ color: glow, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    // From the striker's right, across the front, to its left: the path of the weapon.
+    const arc = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.74, 32, 1, 0, 2.3), material);
+    const heading = Math.atan2(-along.z, along.x);
+    arc.rotation.set(-Math.PI / 2, 0, heading - Math.PI / 2 - 0.35);
+    arc.position.copy(at).setY(0.78);
+    arc.renderOrder = 4;
+    scene.add(arc);
+    tween(
+      300,
+      (k) => {
+        arc.scale.setScalar(0.85 + 0.35 * k);
+        arc.position.y = 0.78 - 0.12 * k;
+        material.opacity = 0.9 * (1 - k * k);
+      },
+      () => {
+        scene.remove(arc);
+        arc.geometry.dispose();
+        material.dispose();
+      },
+    );
+  };
+
+  /** A bolt of light from one point to another. `onHit` runs when it arrives. */
+  const bolt = (start: THREE.Vector3, end: THREE.Vector3, glow: number, onHit: () => void) => {
+    const span = end.clone().sub(start);
+    const length = span.length();
+    const ray = new THREE.Group();
+    ray.position.copy(start);
+    ray.quaternion.setFromUnitVectors(UP, span.normalize());
+    const paint = (color: number, opacity: number) =>
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
+    // A white-hot core inside a sheath of the striker's own colour. Both grow from the staff.
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1, 8).translate(0, 0.5, 0), paint(0xffffff, 0.95));
+    const sheath = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 10).translate(0, 0.5, 0), paint(glow, 0.55));
+    ray.add(sheath, core);
+    ray.renderOrder = 4;
+    scene.add(ray);
+    const done = () => {
+      scene.remove(ray);
+      for (const mesh of [core, sheath]) {
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+      }
+    };
+    tween(
+      90,
+      (k) => ray.scale.set(1, Math.max(0.001, length * k), 1),
+      () => {
+        onHit();
+        tween(
+          240,
+          (k) => {
+            // It thins and fades, as if spent.
+            ray.scale.set(1 - 0.8 * k, length, 1 - 0.8 * k);
+            core.material.opacity = 0.95 * (1 - k);
+            sheath.material.opacity = 0.55 * (1 - k * k);
+          },
+          done,
+        );
+      },
+    );
+  };
+
+  /**
+   * A strike from a distance. The statue turns to its enemy, comes no nearer
+   * than it must, gathers light at its staff, lets it go, and only then
+   * walks to the square it has cleared. It takes as long as any other attack.
+   */
+  const cast = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
+    const data = mover.userData;
+    const along = to.clone().sub(from).normalize();
+    const yaw = yawToward(along);
+    const victimYaw = yawToward(along.clone().negate());
+    const braced = victim.userData.facing;
+    const tone = data.code[0] === 'w' ? ICE : AMETHYST;
+    // Near enough that the bolt is short and plainly from this piece; an adjacent enemy is struck from where it stands.
+    const stand = from.clone().addScaledVector(along, Math.max(0, from.distanceTo(to) - 2.4));
+    const staff = () => {
+      mover.updateMatrixWorld();
+      return mover.localToWorld(data.emitter.clone());
+    };
+    const charge = new THREE.MeshBasicMaterial({ color: tone.glow, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), charge);
+    orb.renderOrder = 4;
+    scene.add(orb);
+
+    // 1. Turn to face it. The defender turns to meet the blow.
+    tween(400, (k) => {
+      const e = ease(k);
+      mover.position.lerpVectors(from, stand, e);
+      mover.rotation.set(0, mixYaw(data.facing, yaw, Math.min(1, k * 1.6)), 0);
+      victim.rotation.set(0, mixYaw(braced, victimYaw, e), 0);
+    });
+
+    // 2. Gather the light slowly, then loose it at once.
+    let loosed = false;
+    tween(
+      480,
+      (k) => {
+        if (k < 0.66) {
+          const w = ease(k / 0.66);
+          pose(mover, yaw, along, -0.13 * w);
+          mover.position.copy(stand).setY(0.09 * w);
+          data.material.emissiveIntensity = tone.rest + 0.55 * w;
+          orb.position.copy(staff());
+          orb.scale.setScalar(0.25 + 1.05 * w + 0.07 * Math.sin(k * 60));
+          charge.opacity = 0.95 * w;
+        } else {
+          const h = (k - 0.66) / 0.34;
+          // The recoil: thrown forward into the cast, then settling.
+          pose(mover, yaw, along, mix(-0.13, 0.12, Math.min(1, h * 4)) * (1 - 0.5 * h));
+          mover.position.copy(stand).setY(0.09 * (1 - h));
+          if (!loosed) {
+            loosed = true;
+            bolt(staff(), to.clone().setY(0.55), tone.glow, () => shatter(victim, victimYaw, along));
+          }
+          orb.position.copy(staff());
+          orb.scale.setScalar(Math.max(0.01, 1.3 * (1 - h)));
+          charge.opacity = 0.95 * (1 - h);
+          data.material.emissiveIntensity = tone.rest + 0.55 * (1 - h);
+        }
+      },
+      () => {
+        scene.remove(orb);
+        orb.geometry.dispose();
+        charge.dispose();
+      },
+      400,
+    );
+
+    // 3. Walk to the square.
+    tween(
+      380,
+      (k) => {
+        const e = ease(k);
+        mover.position.lerpVectors(stand, to, e).setY(Math.abs(Math.sin(k * Math.PI * 3)) * 0.03);
+        pose(mover, mixYaw(yaw, data.facing, e), along, 0);
+      },
+      () => finish(game),
+      880,
+    );
+  };
+
   /**
    * Turn to face the enemy and close in; draw the weapon back; strike, fast;
    * then lower the weapon and take the square. A little over a second.
    */
   const fight = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
     const data = mover.userData;
+    if (data.strike === 'bolt') {
+      cast(mover, victim, from, to, game);
+      return;
+    }
     const along = to.clone().sub(from).normalize();
     const back = along.clone().negate();
     const reach = to.clone().addScaledVector(along, -0.7);
     const yaw = yawToward(along);
     const victimYaw = yawToward(back);
     const braced = victim.userData.facing;
+    // A figure with no arm to swing strikes with its whole body: it twists its
+    // weapon side away, rises a little, then whips round and through.
+    const sweep = data.strike === 'sweep';
+    const BACK = -1.25;
+    const THROUGH = 1.0;
+    const lean = sweep ? 0.16 : 0.34;
+    const glow = data.code[0] === 'w' ? ICE.glow : AMETHYST.glow;
 
     // 1. Close in. The defender turns to meet it.
     tween(400, (k) => {
@@ -534,25 +695,29 @@ function createWorld(canvas: HTMLCanvasElement) {
         if (k < 0.6) {
           const w = ease(k / 0.6);
           data.arm.rotation.x = mix(0, data.windup, w);
-          pose(mover, yaw, along, -data.rear * w);
+          pose(mover, yaw + (sweep ? BACK * w : 0), along, -data.rear * w);
           mover.position.copy(reach).addScaledVector(along, -0.07 * w);
+          if (sweep) mover.position.y = 0.07 * w;
         } else if (k < 0.8) {
           const h = ((k - 0.6) / 0.2) ** 2;
           data.arm.rotation.x = mix(data.windup, data.hit, h);
-          pose(mover, yaw, along, mix(-data.rear, 0.34, h));
+          pose(mover, yaw + (sweep ? mix(BACK, THROUGH, h) : 0), along, mix(-data.rear, lean, h));
           mover.position.copy(reach).addScaledVector(along, mix(-0.07, 0.24, h));
-          if (!struck && h > 0.7) {
+          if (sweep) mover.position.y = 0.07 * (1 - h);
+          if (!struck && h > (sweep ? 0.45 : 0.7)) {
             struck = true;
+            if (sweep) slash(mover.position, along, glow);
             shatter(victim, victimYaw, along);
           }
         } else {
           // Follow through.
           const f = (k - 0.8) / 0.2;
           data.arm.rotation.x = data.hit;
-          pose(mover, yaw, along, mix(0.34, 0.2, f));
+          pose(mover, yaw + (sweep ? mix(THROUGH, THROUGH + 0.25, f) : 0), along, mix(lean, sweep ? 0.1 : 0.2, f));
           mover.position.copy(reach).addScaledVector(along, 0.24);
           if (!struck) {
             struck = true;
+            if (sweep) slash(mover.position, along, glow);
             shatter(victim, victimYaw, along);
           }
         }
@@ -569,7 +734,7 @@ function createWorld(canvas: HTMLCanvasElement) {
         const e = ease(k);
         data.arm.rotation.x = mix(data.hit, 0, e);
         mover.position.lerpVectors(lunge, to, e);
-        pose(mover, mixYaw(yaw, data.facing, e), along, 0.2 * (1 - e));
+        pose(mover, mixYaw(yaw + (sweep ? THROUGH + 0.25 : 0), data.facing, e), along, (sweep ? 0.1 : 0.2) * (1 - e));
       },
       () => finish(game),
       880,
