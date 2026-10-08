@@ -1,6 +1,6 @@
 {
   "name": "Sculpted",
-  "note": "Sculpted: pawn, queen. The rest are blockouts of the built-in statues.",
+  "note": "Sculpted: pawn, knight, rook, queen. The rest are blockouts of the built-in statues.",
   "pieces": {
     "pawn": {
       "file": "pawn.glb",
@@ -20,8 +20,13 @@
       "scale": 1,
       "yOffset": 0,
       "rotationY": 180,
-      "shading": "flat",
-      "blockout": true
+      "shading": "smooth",
+      "strike": "lance",
+      "emitter": [
+        -0.2,
+        0.95,
+        0.1
+      ]
     },
     "bishop": {
       "file": "bishop.glb",
@@ -36,8 +41,8 @@
       "scale": 1,
       "yOffset": 0,
       "rotationY": 180,
-      "shading": "flat",
-      "blockout": true
+      "shading": "smooth",
+      "strike": "smash"
     },
     "queen": {
       "file": "queen.glb",

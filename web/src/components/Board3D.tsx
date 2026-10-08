@@ -65,8 +65,8 @@ function squareFromPoint(p: THREE.Vector3): Square | null {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
-/** A fight plays at 80% speed: its timings below are written at full speed and stretched by this. */
-const FIGHT_PACE = 1.25;
+/** A fight plays at 60% speed: its timings below are written at full speed and stretched by this. */
+const FIGHT_PACE = 1.7;
 const mix = (a: number, b: number, k: number) => a + (b - a) * k;
 const ease = (k: number) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
 
@@ -116,7 +116,7 @@ interface StatueData {
   /** How far the body leans back before striking (a horse rears). */
   rear: number;
   /** "sweep": no arm to swing, so the whole figure turns into the blow. "bolt": it strikes from a distance. */
-  strike: 'arm' | 'sweep' | 'bolt' | 'arrow';
+  strike: 'arm' | 'sweep' | 'bolt' | 'arrow' | 'lance' | 'smash';
   /** Where a bolt leaves the statue, in its own coordinates. */
   emitter: THREE.Vector3;
   /** A checkmated king: frosted over, and left alone by the idle animation. */
@@ -582,9 +582,10 @@ function createWorld(canvas: HTMLCanvasElement) {
   /**
    * A bow of light with an arrow on the string, both pointing along +Z.
    * `draw(w)` pulls the arrow back; `loose` sends it to `end` and runs
-   * `onHit` when it lands; `fade(k)` lets the bow go.
+   * `onHit` when it lands; `fade(k)` lets the bow go. With `lance` there is
+   * no bow: the missile is a lance, held back over the shoulder and thrown.
    */
-  const longbow = (glow: number) => {
+  const longbow = (glow: number, lance = false) => {
     const paint = (color: number, opacity: number) =>
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
     const wood = paint(glow, 0);
@@ -595,9 +596,14 @@ function createWorld(canvas: HTMLCanvasElement) {
     const string = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.39, 4).translate(0, 0, -0.07), wood);
     const arrow = new THREE.Group();
     arrow.add(
-      new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.36, 6).rotateX(Math.PI / 2), bright),
-      new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.09, 8).rotateX(Math.PI / 2).translate(0, 0, 0.22), wood),
+      lance
+        ? new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 0.86, 8).rotateX(Math.PI / 2), bright)
+        : new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.36, 6).rotateX(Math.PI / 2), bright),
+      lance
+        ? new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.2, 8).rotateX(Math.PI / 2).translate(0, 0, 0.52), wood)
+        : new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.09, 8).rotateX(Math.PI / 2).translate(0, 0, 0.22), wood),
     );
+    limbs.visible = string.visible = !lance;
     bow.add(limbs, string, arrow);
     bow.renderOrder = 4;
     scene.add(bow);
@@ -612,11 +618,11 @@ function createWorld(canvas: HTMLCanvasElement) {
       draw: (w: number) => {
         wood.opacity = 0.9 * w;
         bright.opacity = 0.95 * w;
-        arrow.position.z = 0.04 - 0.11 * w;
+        arrow.position.z = lance ? 0.12 - 0.34 * w : 0.04 - 0.11 * w;
       },
       fade: (k: number) => {
         bow.scale.setScalar(1 - 0.3 * k);
-        limbs.visible = string.visible = k < 1;
+        limbs.visible = string.visible = !lance && k < 1;
       },
       loose: (end: THREE.Vector3, onHit: () => void) => {
         const start = arrow.getWorldPosition(new THREE.Vector3());
@@ -625,10 +631,10 @@ function createWorld(canvas: HTMLCanvasElement) {
         arrow.position.copy(start);
         arrow.lookAt(end);
         tween(
-          130,
+          lance ? 190 : 130,
           (k) => {
             // A flat shot with the slightest rise, so it reads as thrown weight and not a ray.
-            arrow.position.lerpVectors(start, end, k).setY(mix(start.y, end.y, k) + 0.05 * Math.sin(k * Math.PI));
+            arrow.position.lerpVectors(start, end, k).setY(mix(start.y, end.y, k) + (lance ? 0.14 : 0.05) * Math.sin(k * Math.PI));
             arrow.lookAt(end);
           },
           () => {
@@ -660,7 +666,11 @@ function createWorld(canvas: HTMLCanvasElement) {
       return mover.localToWorld(data.emitter.clone());
     };
     // An archer draws a bow where a caster gathers an orb. The enemy itself is the mark: en passant takes a pawn that is not on the square moved to.
-    const archer = data.strike === 'arrow' ? longbow(tone.glow) : null;
+    const thrower = data.strike === 'lance';
+    const archer = data.strike === 'arrow' || thrower ? longbow(tone.glow, thrower) : null;
+    // A thrower rears back and hurls itself forward; an archer or a caster barely moves.
+    const back = thrower ? -0.3 : -0.13;
+    const fore = thrower ? 0.3 : 0.12;
     const mark = victim.position.clone().setY(archer ? 0.45 : 0.55);
     const hold = () => {
       if (!archer) return;
@@ -688,7 +698,7 @@ function createWorld(canvas: HTMLCanvasElement) {
       (k) => {
         if (k < 0.66) {
           const w = ease(k / 0.66);
-          pose(mover, yaw, along, -0.13 * w);
+          pose(mover, yaw, along, back * w);
           mover.position.copy(stand).setY(0.09 * w);
           data.material.emissiveIntensity = tone.rest + 0.55 * w;
           orb.position.copy(staff());
@@ -699,7 +709,7 @@ function createWorld(canvas: HTMLCanvasElement) {
         } else {
           const h = (k - 0.66) / 0.34;
           // The recoil: thrown forward into the cast, then settling.
-          pose(mover, yaw, along, mix(-0.13, 0.12, Math.min(1, h * 4)) * (1 - 0.5 * h));
+          pose(mover, yaw, along, mix(back, fore, Math.min(1, h * 4)) * (1 - 0.5 * h));
           mover.position.copy(stand).setY(0.09 * (1 - h));
           if (!loosed) {
             loosed = true;
@@ -737,14 +747,109 @@ function createWorld(canvas: HTMLCanvasElement) {
     );
   };
 
+  /** The ring a heavy landing sends across the board. */
+  const quake = (at: THREE.Vector3, glow: number) => {
+    const material = new THREE.MeshBasicMaterial({ color: glow, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.42, 40).rotateX(-Math.PI / 2), material);
+    ring.position.copy(at).setY(0.02);
+    ring.renderOrder = 4;
+    scene.add(ring);
+    tween(
+      420,
+      (k) => {
+        ring.scale.setScalar(1 + 1.6 * ease(k));
+        material.opacity = 0.8 * (1 - k);
+      },
+      () => {
+        scene.remove(ring);
+        ring.geometry.dispose();
+        material.dispose();
+      },
+    );
+  };
+
+  /**
+   * A blow with the whole body. The statue closes in, heaves itself into the
+   * air, and comes down on the enemy's square; the enemy breaks under it.
+   */
+  const smash = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
+    const data = mover.userData;
+    const along = to.clone().sub(from).normalize();
+    const yaw = yawToward(along);
+    const victimYaw = yawToward(along.clone().negate());
+    const braced = victim.userData.facing;
+    const tone = data.code[0] === 'w' ? ICE : AMETHYST;
+    const reach = to.clone().addScaledVector(along, -Math.min(0.95, from.distanceTo(to)));
+    const top = reach.clone().addScaledVector(along, 0.3);
+    const HEIGHT = 0.8;
+
+    // 1. Close in. The defender turns to meet it.
+    tween(400, (k) => {
+      const e = ease(k);
+      mover.position.lerpVectors(from, reach, e);
+      mover.rotation.set(0, mixYaw(data.facing, yaw, Math.min(1, k * 1.6)), 0);
+      victim.rotation.set(0, mixYaw(braced, victimYaw, e), 0);
+    });
+
+    // 2. Up slowly, tipping back; then down hard.
+    let landed = false;
+    tween(
+      460,
+      (k) => {
+        if (k < 0.62) {
+          const w = ease(k / 0.62);
+          pose(mover, yaw, along, -0.22 * w);
+          mover.position.lerpVectors(reach, top, w).setY(HEIGHT * w);
+          data.material.emissiveIntensity = tone.rest + 0.45 * w;
+          return;
+        }
+        const h = (k - 0.62) / 0.38;
+        const fall = Math.min(1, h * 1.8) ** 2;
+        mover.position.lerpVectors(top, to, fall).setY(HEIGHT * (1 - fall));
+        if (fall < 1) {
+          pose(mover, yaw, along, mix(-0.22, 0.32, fall));
+          return;
+        }
+        if (!landed) {
+          landed = true;
+          shatter(victim, victimYaw, along);
+          quake(to, tone.glow);
+        }
+        // It lands tipped forward, flattens under its own weight, and rights itself.
+        const settle = (h - 1 / 1.8) / (1 - 1 / 1.8);
+        const squash = Math.sin(settle * Math.PI);
+        pose(mover, yaw, along, 0.32 * (1 - settle));
+        mover.scale.set(1 + 0.12 * squash, 1 - 0.2 * squash, 1 + 0.12 * squash);
+        data.material.emissiveIntensity = tone.rest + 0.45 * (1 - settle);
+      },
+      () => mover.scale.setScalar(1),
+      400,
+    );
+
+    // 3. Square up on the square it has taken.
+    tween(
+      380,
+      (k) => {
+        mover.position.copy(to);
+        pose(mover, mixYaw(yaw, data.facing, ease(k)), along, 0);
+      },
+      () => finish(game),
+      880,
+    );
+  };
+
   /**
    * Turn to face the enemy and close in; draw the weapon back; strike, fast;
-   * then lower the weapon and take the square. About a second and a half at the fight's pace.
+   * then lower the weapon and take the square. About two seconds at the fight's pace.
    */
   const fight = (mover: Statue, victim: Statue, from: THREE.Vector3, to: THREE.Vector3, game: GameState) => {
     const data = mover.userData;
-    if (data.strike === 'bolt' || data.strike === 'arrow') {
+    if (data.strike === 'bolt' || data.strike === 'arrow' || data.strike === 'lance') {
       cast(mover, victim, from, to, game);
+      return;
+    }
+    if (data.strike === 'smash') {
+      smash(mover, victim, from, to, game);
       return;
     }
     const along = to.clone().sub(from).normalize();
@@ -852,7 +957,7 @@ function createWorld(canvas: HTMLCanvasElement) {
     const from = squarePosition(move.from);
     const to = squarePosition(move.to);
     // En passant: the pawn taken stands beside the mover, not on the square moved to. A piece that strikes from a distance can shoot it where it stands.
-    const ranged = mover.userData.strike === 'arrow' || mover.userData.strike === 'bolt';
+    const ranged = mover.userData.strike === 'arrow' || mover.userData.strike === 'bolt' || mover.userData.strike === 'lance';
     const beside = `${move.to[0]}${move.from[1]}` as Square;
     const passed = ranged && mover.userData.code[1] === 'P' && move.from[0] !== move.to[0] && !statues.has(move.to) && statues.has(beside);
     const victimAt = passed ? beside : move.to;
